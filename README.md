@@ -124,6 +124,9 @@ xhs-workbench-portable/
 | 免配置迁移 | `lark-cli.exe` 为自包含单文件，无需 Node 环境 |
 | Cookie 不入包 | 出于安全考虑打包时清空 Cookie，新电脑在页面「设置」里填一次即可 |
 | 端口自适应 | 8787 被占用时自动顺延到 8788、8789… |
+| bat 编码 | 「启动工作台.bat」为 **GBK + CRLF**（中文 Windows 默认代码页 936），`.gitattributes` 已禁止 git 对其做任何转换 |
+
+> **改 bat 的注意事项**：千万不要用默认 UTF-8 + LF 保存。cmd 不认 LF 分行，且会把 UTF-8 中文按 GBK 解析成乱码并拆成独立"命令"，表现为满屏「不是内部或外部命令」且服务起不来。用编辑器另存为 ANSI/GBK 编码、Windows(CRLF) 行尾。
 
 ### 源码结构（`portable/`）
 

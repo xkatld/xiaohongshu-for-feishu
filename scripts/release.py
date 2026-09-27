@@ -105,6 +105,7 @@ def main():
     ap = argparse.ArgumentParser(description="发布 GitHub Release")
     ap.add_argument("tag", help="版本号，例如 v1.0.0")
     ap.add_argument("--file", default=DEFAULT_ZIP, help="要上传的 zip 路径")
+    ap.add_argument("--name", default="", help="上传后的文件名（默认沿用 --file 的文件名）")
     ap.add_argument("--notes", default="", help="本次更新说明")
     ap.add_argument("--target", default="main", help="目标分支，默认 main")
     args = ap.parse_args()
@@ -131,7 +132,7 @@ def main():
     print(f"  {rel.get('html_url')}")
 
     print("\n[2/2] 上传附件 ...")
-    asset_name = os.path.basename(zip_path)
+    asset_name = args.name or os.path.basename(zip_path)
     upload = rel["upload_url"].split("{")[0] + f"?name={asset_name}"
     with open(zip_path, "rb") as f:
         blob = f.read()
