@@ -145,8 +145,13 @@ class Handler(BaseHTTPRequestHandler):
             provisioned = bool(st.get("base_token") and st.get("table_id"))
             logged_in = fs.get("logged_in", False)
             app_ready = bool(app.get("configured"))
-            # 三步：① 绑定自己的飞书应用 ② 登录 ③ 建表
-            steps = {"app": app_ready, "login": logged_in, "base": provisioned}
+            # 四步：① 绑定自己的飞书应用 ② 登录 ③ 建表 ④ 配置小红书 Cookie
+            steps = {
+                "app": app_ready,
+                "login": logged_in,
+                "base": provisioned,
+                "cookie": bool(ck),
+            }
             return self._json({
                 "ok": True,
                 "app": app,

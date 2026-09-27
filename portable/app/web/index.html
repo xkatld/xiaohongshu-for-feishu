@@ -209,7 +209,7 @@
   <section class="card guide" id="guideCard">
     <div class="card-hd">
       <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4Zm0 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/></svg>
-      <h2>首次使用 · 三步</h2>
+      <h2>首次使用 · 四步</h2>
       <span class="hint">配置只保存在本机</span>
     </div>
     <div class="steps">
@@ -236,6 +236,14 @@
           <div class="step-d" id="stepBaseDesc">在你自己的空间里新建一张多维表格，字段结构自动建好。</div>
         </div>
         <button class="step-btn" id="stepBaseBtn">创建</button>
+      </div>
+      <div class="step" id="stepCookie">
+        <span class="step-no">4</span>
+        <div class="step-b">
+          <div class="step-t">配置小红书 Cookie</div>
+          <div class="step-d" id="stepCookieDesc">没有 Cookie 无法抓取。从浏览器开发者工具复制，粘贴到「设置 → 小红书 Cookie」。</div>
+        </div>
+        <button class="step-btn" id="stepCookieBtn">去配置</button>
       </div>
     </div>
   </section>
@@ -476,11 +484,12 @@ function renderStatus(){
   }
 }
 
-/* 首次使用三步引导（应用 → 登录 → 建表） */
+/* 首次使用四步引导（应用 → 登录 → 建表 → Cookie） */
 function renderGuide(){
   const steps = state.steps || {};
   const app = state.app || {};
   const fs = state.feishu || {};
+  const ck = state.cookie || {};
 
   const mark = (elId, ok, no) => {
     const el = $(elId);
@@ -490,8 +499,9 @@ function renderGuide(){
   mark("stepApp", !!steps.app, "1");
   mark("stepLogin", !!steps.login, "2");
   mark("stepBase", !!steps.base, "3");
+  mark("stepCookie", !!steps.cookie, "4");
 
-  // 后一步依赖前一步
+  // 后一步依赖前一步（Cookie 独立，不依赖飞书那三步）
   $("stepLoginBtn").disabled = !steps.app;
   $("stepBaseBtn").disabled = !(steps.app && steps.login);
 
@@ -505,9 +515,14 @@ function renderGuide(){
     ? "请先完成前两步。"
     : (steps.base ? "已创建，抓到的数据会写入你自己的飞书表格。"
                   : "在你自己的空间里新建一张多维表格，字段结构自动建好。");
+  $("stepCookieDesc").textContent = steps.cookie
+    ? ("已配置（" + (ck.length || 0) + " 字符）。失效时重新粘贴即可。")
+    : "没有 Cookie 无法抓取。从浏览器开发者工具复制，粘贴到「设置 → 小红书 Cookie」。";
 
   $("stepBaseBtn").textContent = steps.base ? "再建一张" : "创建";
-  $("guideCard").style.display = (steps.app && steps.login && steps.base) ? "none" : "";
+  $("stepCookieBtn").textContent = steps.cookie ? "重新粘贴" : "去配置";
+  $("guideCard").style.display =
+    (steps.app && steps.login && steps.base && steps.cookie) ? "none" : "";
 }
 
 function renderStats(){
@@ -833,6 +848,11 @@ document.addEventListener("DOMContentLoaded", () => {
     startLogin();
   });
   $("stepBaseBtn").addEventListener("click", () => doSetup(!!(state.feishu || {}).provisioned));
+  $("stepCookieBtn").addEventListener("click", () => {
+    $("drawer").classList.add("on"); $("mask").classList.add("on");
+    const el = $("ckInput");
+    if (el) el.focus();
+  });
 
   // 飞书应用
   $("appInitBtn").addEventListener("click", doAppInit);
