@@ -4,12 +4,13 @@
 
 ## 一、飞书表格
 
+> 下表是**开发机自己用的**表格，只用于本地调试。
+> 便携版**不内置任何表格地址**：使用者登录飞书后，程序会在 TA 自己的空间里自动新建一张（见第九节）。
+
 | 项目 | 值 |
 |---|---|
 | 表格名称 | 小红书笔记统计 |
-| 地址 | https://my.feishu.cn/base/S6IGbRWTeaualFsWEkBc81zBn0g |
-| base_token | `S6IGbRWTeaualFsWEkBc81zBn0g` |
-| table_id | `tbl1c8KxkRxC2hCk` |
+| 地址 / base_token / table_id | 不在文档中记录 —— 属本机私有配置，见本机 `portable/config/settings.json`（该文件已排除出 git 与打包） |
 
 **字段**：笔记标题、笔记类型（图文/视频）、作者、标签、正文、图片链接、点赞数、收藏数、评论数、分享数、发布时间、笔记链接、note_id、抓取时间。
 
@@ -111,9 +112,27 @@ xhs-workbench-portable/
 ├── app/                    程序代码（零第三方依赖，仅标准库）
 │   └── web/index.html      工作台页面
 ├── tools/lark-cli.exe      飞书操作工具（48 MB，自带运行时）
-├── config/settings.json    飞书表格坐标
+├── config/                 配置目录（Cookie、表格坐标；首次运行自动生成）
 └── data/                   本地数据（notes.json，首次运行自动创建）
 ```
+
+### 每个使用者的表格从哪来
+
+打包时**不会**带上任何人的表格地址。使用者第一次用的时候：
+
+1. 登录自己的飞书账号；
+2. 页面顶部出现蓝色提示条「还没有你的飞书表格」→ 点「立即创建」；
+3. 程序调用 `base +base-create`，在**该账号自己的飞书空间**里新建一张表，
+   并把 14 个字段（笔记标题 / 笔记类型 / 作者 / 标签 / 正文 / 点赞数 …）一次建好；
+4. `base_token` / `table_id` 写入该电脑的 `config/settings.json`，之后一直复用。
+
+所以不存在"借用开发者的表格""没有文档权限"这类问题——每个账号各自一份，互相看不到。
+
+换账号时在「设置 → 飞书账号」点「我已换账号，重新建表」清空坐标，再点「创建我的飞书表格」即可。
+
+> 若使用者的账号连**登录**都被拒（提示「你没有 xxx 的使用权限」），那是飞书应用可用范围的问题，
+> 不是本程序的问题。解决办法：用 `lark-cli config init --app-id ... --app-secret-stdin`
+> 换成使用者自己在开放平台创建的自建应用（详见 `portable/使用说明.txt` 第五节）。
 
 ### 设计要点
 
@@ -122,7 +141,8 @@ xhs-workbench-portable/
 | 零第三方依赖 | 用标准库 `urllib` 替代 `requests`，无需 pip 安装 |
 | 双轨存储 | 抓取结果先落本地 `data/notes.json`，飞书作为云端同步；断网也能用 |
 | 免配置迁移 | `lark-cli.exe` 为自包含单文件，无需 Node 环境 |
-| Cookie 不入包 | 出于安全考虑打包时清空 Cookie，新电脑在页面「设置」里填一次即可 |
+| Cookie 不入包 | 打包时排除 `config/xhs_cookie.txt`，新电脑在页面「设置」里填一次即可 |
+| 表格不入包 | 打包时排除 `config/settings.json`，使用者登录后自行建表，绝不外泄开发者的表格 |
 | 端口自适应 | 8787 被占用时自动顺延到 8788、8789… |
 | bat 编码 | 「启动工作台.bat」为 **GBK + CRLF**（中文 Windows 默认代码页 936），`.gitattributes` 已禁止 git 对其做任何转换 |
 
@@ -139,7 +159,7 @@ portable/
 │   ├── store.py          本地存储
 │   ├── xhs_server.py     本地服务
 │   └── web/index.html    工作台页面
-├── config/settings.json  飞书表格坐标
+├── config/               配置目录（Cookie、表格坐标；打包时整体排除）
 ├── 启动工作台.bat
 ├── 使用说明.txt
 ├── python/               内置运行时（构建时自动下载，不入库）

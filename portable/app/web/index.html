@@ -66,6 +66,8 @@
   .pending.on{display:flex}
   .pending span{flex:1}
   .pending button{min-height:36px;padding:0 14px;border-radius:9px;border:none;background:#FF8A3D;color:#fff;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit}
+  .pending.info{background:#EAF2FF;border-color:#C7DEFF;color:#1D5CC4}
+  .pending.info button{background:var(--blue)}
 
   /* 概览 */
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
@@ -185,6 +187,12 @@
     <button id="syncBtn">一键同步到飞书</button>
   </div>
 
+  <!-- 首次使用：在当前账号自己的空间里建表 -->
+  <div class="pending info" id="setupBar">
+    <span id="setupBarTxt">还没有你的飞书表格，创建后数据只存在你自己的飞书空间</span>
+    <button id="setupBarBtn">立即创建</button>
+  </div>
+
   <!-- 录入 -->
   <section class="card">
     <div class="card-hd">
@@ -253,9 +261,12 @@
     <h4>飞书账号</h4>
     <div class="kv"><span>状态</span><span id="sFsStatus">-</span></div>
     <div class="kv"><span>账号</span><span id="sFsUser">-</span></div>
-    <div class="kv"><span>表格</span><span id="sFsBase">-</span></div>
+    <div class="kv"><span>我的表格</span><span id="sFsBase">-</span></div>
     <button class="btn btn-o" id="loginBtn">登 录 飞 书</button>
     <button class="btn btn-o" id="logoutHintBtn">已登录？重新授权</button>
+    <p>登录后会在<b>你自己的飞书空间</b>里新建一张表格，只属于当前账号，和别人的数据相互独立。</p>
+    <button class="btn btn-p" id="setupBtn">创建我的飞书表格</button>
+    <button class="btn btn-g" id="resetTblBtn">我已换账号，重新建表</button>
   </div>
 
   <div class="set-block">
@@ -275,7 +286,7 @@
 
   <div class="set-block">
     <h4>飞书表格坐标（高级）</h4>
-    <p>如需换成自己的多维表格，填写 base_token 与 table_id。</p>
+    <p>一般不用填。只有想复用一张已有表格时，才在这里手动填 base_token 与 table_id。</p>
     <input id="baseTokenInput" placeholder="base_token">
     <input id="tableIdInput" placeholder="table_id" style="margin-top:8px">
     <button class="btn btn-o" id="saveTblBtn">保存表格配置</button>
@@ -336,19 +347,34 @@ async function loadAll(){
 function renderStatus(){
   const fs = state.feishu || {};
   const dot = $("fsDot"), txt = $("fsTxt");
-  if (fs.logged_in){
+  const provisioned = !!fs.provisioned;
+
+  if (fs.logged_in && provisioned){
     dot.className = "dot"; txt.textContent = "飞书已连接";
+  }else if (fs.logged_in){
+    dot.className = "dot warn"; txt.textContent = "待创建表格";
   }else{
     dot.className = "dot warn"; txt.textContent = "飞书未登录";
   }
   $("fsLink").innerHTML = fs.base_url
-    ? `<a href="${esc(fs.base_url)}" target="_blank" rel="noopener">打开飞书表格 ↗</a>` : "";
+    ? `<a href="${esc(fs.base_url)}" target="_blank" rel="noopener">打开我的飞书表格 ↗</a>` : "";
 
   $("sFsStatus").textContent = fs.logged_in ? "已登录" : "未登录";
   $("sFsUser").textContent = fs.user || "-";
-  $("sFsBase").textContent = fs.base_token ? (fs.base_token.slice(0, 10) + "…") : "-";
+  $("sFsBase").textContent = provisioned
+    ? (fs.base_token.slice(0, 10) + "…")
+    : (fs.logged_in ? "尚未创建" : "-");
   $("baseTokenInput").value = fs.base_token || "";
   $("tableIdInput").value = fs.table_id || "";
+
+  // 建表按钮
+  $("setupBtn").textContent = provisioned ? "再建一张新表格" : "创建我的飞书表格";
+  $("setupBtn").disabled = !fs.logged_in;
+
+  // 顶部「还没有自己的表格」提示条
+  const sbar = $("setupBar");
+  if (fs.needs_setup) sbar.classList.add("on");
+  else sbar.classList.remove("on");
 
   const ck = state.cookie || {};
   $("sCkStatus").textContent = ck.configured ? ("已配置（" + ck.length + " 字符）") : "未配置";
@@ -448,6 +474,46 @@ function renderList(){
 /* ============ 统一刷新入口 ============ */
 function refreshAll(){ renderStatus(); renderStats(); renderList(); }
 
+/* ============ 建表（在登录账号自己的空间里） ============ */
+async function doSetup(force){
+  const fs = state.feishu || {};
+  if (!fs.logged_in){ toast("请先登录飞书，登录后才能创建表格"); return; }
+  if (force && fs.provisioned &&
+      !confirm("当前已有表格。\n\n确定再新建一张吗？新表会和现在这张并存，之后抓取的笔记将写入新表。")) return;
+
+  const btn = $("setupBtn"), b2 = $("setupBarBtn");
+  btn.disabled = b2.disabled = true;
+  btn.textContent = "正在创建…";
+  b2.textContent = "正在创建…";
+  toast("正在你的飞书空间里建表…");
+
+  try{
+    const d = await api("/api/setup", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ force: !!force })
+    });
+    if (d.ok){
+      toast(d.created ? "表格创建成功，已绑定到你的账号" : "已使用现有表格");
+      await loadAll();
+    }else{
+      toast("创建失败：" + (d.error || "未知错误"));
+    }
+  }catch(e){
+    toast("创建失败：" + e.message);
+  }
+  btn.disabled = b2.disabled = false;
+  b2.textContent = "立即创建";
+  renderStatus();
+}
+
+async function doResetTbl(){
+  if (!confirm("确定要更换表格吗？\n\n清空后程序会忘记当前表格地址，下次点「创建我的飞书表格」\n会在当前登录账号下新建一张。\n\n本地已抓取的记录不受影响。")) return;
+  const d = await api("/api/reset", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+  });
+  if (d.ok){ toast("已清空表格配置，请点「创建我的飞书表格」"); await loadAll(); }
+}
+
 /* ============ 交互 ============ */
 async function submitFetch(){
   const raw = $("urlInput").value.trim();
@@ -526,8 +592,14 @@ async function finishLogin(){
     });
     if (d.ok){
       $("loginModal").classList.remove("on");
-      toast("飞书登录成功");
       await loadAll();
+      if ((state.feishu || {}).needs_setup){
+        // 登录后还没建表：自动打开设置抽屉引导创建
+        $("drawer").classList.add("on"); $("mask").classList.add("on");
+        toast("登录成功，请点「创建我的飞书表格」");
+      }else{
+        toast("飞书登录成功");
+      }
     }else{
       toast(d.error || "授权未完成，请先在浏览器中完成授权");
     }
@@ -550,6 +622,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("loginBtn").addEventListener("click", startLogin);
   $("logoutHintBtn").addEventListener("click", startLogin);
+  $("setupBtn").addEventListener("click", () => doSetup(true));
+  $("setupBarBtn").addEventListener("click", () => doSetup(false));
+  $("resetTblBtn").addEventListener("click", doResetTbl);
   $("openLoginUrl").addEventListener("click", () => {
     const u = $("loginUrl").textContent;
     if (u && u.startsWith("http")) window.open(u, "_blank");

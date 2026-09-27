@@ -11,7 +11,9 @@
     2. 确保 tools/lark-cli.exe 存在（缺失则尝试从本机 WorkBuddy 目录复制）
     3. 打包为 dist/xhs-workbench-portable-win.zip
 
-注意：打包时会自动排除 config/xhs_cookie.txt 与 data/notes.json（敏感/本地数据）。
+注意：打包时会自动排除 config/xhs_cookie.txt、config/settings.json 与
+data/notes.json —— 保证打包者自己的 Cookie、飞书表格地址、本地数据都不会外泄；
+使用者首次运行登录飞书后，程序会在 TA 自己的空间里新建一张表格。
 """
 import os
 import sys
@@ -36,6 +38,8 @@ OUT_ZIP = os.path.join(DIST, "xhs-workbench-portable-win.zip")
 SKIP_DIRS = {"__pycache__", "_tmp"}
 SKIP_FILES = {
     os.path.join("config", "xhs_cookie.txt"),
+    # 表格坐标必须由使用者登录后自行创建，绝不能把打包者自己的表格发出去
+    os.path.join("config", "settings.json"),
     os.path.join("data", "notes.json"),
 }
 # lark-cli 在本机的常见位置（WorkBuddy 连接器自带）

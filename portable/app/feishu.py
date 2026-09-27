@@ -17,11 +17,36 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TMP_DIR = os.path.join(ROOT, "data", "_tmp")
 
+# 表格坐标一律为空，必须由当前登录账号自己创建后再写入本地配置。
+# 绝不内置任何人的表格地址，避免换账号后越权访问别人的文档。
 DEFAULT_SETTINGS = {
-    "base_token": "S6IGbRWTeaualFsWEkBc81zBn0g",
-    "table_id": "tbl1c8KxkRxC2hCk",
-    "base_url": "https://my.feishu.cn/base/S6IGbRWTeaualFsWEkBc81zBn0g",
+    "base_token": "",
+    "table_id": "",
+    "base_url": "",
 }
+
+# 自动建表时使用的名称
+BASE_NAME = "小红书笔记统计"
+TABLE_NAME = "笔记"
+
+# 表格字段结构，第一项为主字段；与 build_record() 的键一一对应
+FIELD_SCHEMA = [
+    {"name": "笔记标题", "type": "text"},
+    {"name": "笔记类型", "type": "select", "multiple": False,
+     "options": [{"name": "图文"}, {"name": "视频"}]},
+    {"name": "作者", "type": "text"},
+    {"name": "标签", "type": "text"},
+    {"name": "正文", "type": "text"},
+    {"name": "图片链接", "type": "text"},
+    {"name": "点赞数", "type": "number"},
+    {"name": "收藏数", "type": "number"},
+    {"name": "评论数", "type": "number"},
+    {"name": "分享数", "type": "number"},
+    {"name": "发布时间", "type": "datetime"},
+    {"name": "笔记链接", "type": "text"},
+    {"name": "note_id", "type": "text"},
+    {"name": "抓取时间", "type": "datetime"},
+]
 
 
 class FeishuError(Exception):
@@ -103,6 +128,105 @@ def run(args, timeout=120):
         raise FeishuError(f"lark-cli 返回无法解析：{out[:200]}")
 
 
+# ---------------------------------------------------------------- 建表（每个账号各自一份）
+def _dig(obj, paths, default=""):
+    """按候选路径依次取值，兼容 lark-cli 不同版本/封装层的返回结构"""
+    for path in paths:
+        cur = obj
+        for k in path:
+            if isinstance(cur, dict) and k in cur:
+                cur = cur[k]
+            else:
+                cur = None
+                break
+        if isinstance(cur, str) and cur.strip():
+            return cur.strip()
+    return default
+
+
+def is_provisioned():
+    """当前是否已经有可用的表格坐标"""
+    st = load_settings()
+    return bool(st.get("base_token") and st.get("table_id"))
+
+
+def require_provisioned():
+    """读写记录前的守卫：没建表就给出明确指引，而不是抛权限错误"""
+    st = load_settings()
+    if not (st.get("base_token") and st.get("table_id")):
+        raise FeishuError("尚未创建飞书表格，请先在工作台点击「创建我的表格」")
+    return st
+
+
+def reset_settings():
+    """清空表格坐标——换账号时使用"""
+    return save_settings({"base_token": "", "table_id": "", "base_url": ""})
+
+
+def list_tables(base_token):
+    """列出某个 base 下的所有表"""
+    res = run(["base", "+table-list", "--base-token", base_token, "--as", "user"], timeout=90)
+    if isinstance(res, dict) and res.get("ok") is False:
+        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+    data = (res.get("data") if isinstance(res, dict) else None) or {}
+    return data.get("tables") or data.get("items") or []
+
+
+def provision_base(name=BASE_NAME, table_name=TABLE_NAME):
+    """
+    在当前登录账号自己的飞书空间里新建一张多维表格，并写好字段结构。
+    每个账号各建一份，彼此互不干扰、也不需要任何额外文档授权。
+    返回写入本地配置后的 settings。
+    """
+    fields = json.dumps(FIELD_SCHEMA, ensure_ascii=False)
+    res = run([
+        "base", "+base-create",
+        "--name", name,
+        "--table-name", table_name,
+        "--fields", fields,
+        "--format", "json",
+        "--as", "user",
+    ], timeout=180)
+
+    if isinstance(res, dict) and res.get("ok") is False:
+        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+
+    base_token = _dig(res, [
+        ["data", "base", "base_token"], ["data", "base_token"],
+        ["data", "base", "app_token"], ["data", "app", "app_token"],
+        ["data", "app_token"],
+    ])
+    base_url = _dig(res, [
+        ["data", "base", "url"], ["data", "url"],
+        ["data", "base", "base_url"], ["data", "app", "url"],
+    ])
+    table_id = _dig(res, [
+        ["data", "table_id"], ["data", "default_table_id"],
+        ["data", "base", "default_table_id"], ["data", "app", "default_table_id"],
+        ["data", "table", "table_id"], ["data", "table", "id"],
+    ])
+
+    if not base_token:
+        raise FeishuError("建表成功但未返回 base_token：" + json.dumps(res, ensure_ascii=False)[:180])
+
+    # table_id 兜底：按表名回查
+    if not table_id:
+        try:
+            tables = list_tables(base_token)
+        except FeishuError:
+            tables = []
+        hit = next((t for t in tables if (t.get("name") or "") == table_name), None) or (tables[0] if tables else {})
+        table_id = hit.get("table_id") or hit.get("id") or ""
+
+    if not table_id:
+        raise FeishuError("建表成功但未返回 table_id，请在设置里手动填写")
+
+    if not base_url:
+        base_url = "https://feishu.cn/base/" + base_token
+
+    return save_settings({"base_token": base_token, "table_id": table_id, "base_url": base_url})
+
+
 # ---------------------------------------------------------------- 登录
 def auth_status():
     """返回 {logged_in, user, appId}"""
@@ -146,7 +270,7 @@ def login_finish(device_code):
 # ---------------------------------------------------------------- 读写记录
 def list_records():
     """读取全部记录（status 由 note_id 判断不存在时仍返回）"""
-    st = load_settings()
+    st = require_provisioned()
     path = tmp_file("records_", ".ndjson")
     res = run([
         "base", "+record-list",
@@ -181,7 +305,7 @@ def create_records(records):
     """批量新增，返回 record_id 列表"""
     if not records:
         return []
-    st = load_settings()
+    st = require_provisioned()
     path = tmp_file("xhs_", ".json")
     with open(path, "w", encoding="utf-8") as f:
         json.dump({"create_records": records}, f, ensure_ascii=False)
@@ -205,7 +329,7 @@ def create_records(records):
 
 
 def update_record(record_id, record):
-    st = load_settings()
+    st = require_provisioned()
     payload = {"update_records": {record_id: record}}
     path = tmp_file("upd_", ".json")
     with open(path, "w", encoding="utf-8") as f:

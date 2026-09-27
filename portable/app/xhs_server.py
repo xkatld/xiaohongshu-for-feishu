@@ -11,6 +11,8 @@
     POST /api/sync             把未同步的记录批量推送到飞书
     POST /api/delete           删除一条本地记录
     POST /api/settings         保存 Cookie / 表格配置
+    POST /api/setup            在登录账号自己的空间里新建飞书表格
+    POST /api/reset            清空本地表格坐标（换账号时用）
     POST /api/login/start      发起飞书扫码登录
     POST /api/login/finish     完成飞书登录
     GET  /api/img?u=           图片代理（绕过小红书防盗链）
@@ -135,15 +137,20 @@ class Handler(BaseHTTPRequestHandler):
             st = feishu.load_settings()
             ck = xhs_core.load_cookie()
             fs = feishu.auth_status()
+            provisioned = bool(st.get("base_token") and st.get("table_id"))
+            logged_in = fs.get("logged_in", False)
             return self._json({
                 "ok": True,
                 "feishu": {
-                    "logged_in": fs.get("logged_in", False),
+                    "logged_in": logged_in,
                     "user": fs.get("user", ""),
                     "base_url": st.get("base_url", ""),
                     "base_token": st.get("base_token", ""),
                     "table_id": st.get("table_id", ""),
                     "error": fs.get("error", ""),
+                    # 已登录但还没建表 —— 前端提示用户点「创建我的表格」
+                    "provisioned": provisioned,
+                    "needs_setup": bool(logged_in) and not provisioned,
                 },
                 "cookie": {"configured": bool(ck), "length": len(ck)},
                 "stats": stats_of(notes),
@@ -203,6 +210,11 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": ok})
         if p == "/api/settings":
             return self._settings(body)
+        if p == "/api/setup":
+            return self._setup(body)
+        if p == "/api/reset":
+            feishu.reset_settings()
+            return self._json({"ok": True, "feishu": feishu.load_settings()})
         if p == "/api/login/start":
             return self._login_start()
         if p == "/api/login/finish":
@@ -233,6 +245,8 @@ class Handler(BaseHTTPRequestHandler):
         fs = feishu.auth_status()
         if not fs.get("logged_in"):
             sync["message"] = "飞书未登录，已存本地（登录后可一键同步）"
+        elif not feishu.is_provisioned():
+            sync["message"] = "尚未创建飞书表格，已存本地（在设置里点「创建我的表格」）"
         else:
             try:
                 act, rid = feishu.upsert_note(info)
@@ -250,6 +264,8 @@ class Handler(BaseHTTPRequestHandler):
         fs = feishu.auth_status()
         if not fs.get("logged_in"):
             return self._json({"ok": False, "error": "飞书未登录，请先登录"})
+        if not feishu.is_provisioned():
+            return self._json({"ok": False, "error": "尚未创建飞书表格，请先在设置里点「创建我的表格」"})
         notes = store.load_notes()
         pending = [n for n in notes if not n.get("synced")]
         if not pending:
@@ -282,6 +298,19 @@ class Handler(BaseHTTPRequestHandler):
         ck = xhs_core.load_cookie()
         return self._json({"ok": True, "cookie": {"configured": bool(ck), "length": len(ck)}})
 
+    def _setup(self, body):
+        """在当前登录账号自己的飞书空间里新建一张表格"""
+        fs = feishu.auth_status()
+        if not fs.get("logged_in"):
+            return self._json({"ok": False, "error": "请先登录飞书，登录后才能创建表格"})
+        if feishu.is_provisioned() and not body.get("force"):
+            return self._json({"ok": True, "feishu": feishu.load_settings(), "reused": True})
+        try:
+            st = feishu.provision_base()
+            return self._json({"ok": True, "feishu": st, "created": True})
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)[:300]})
+
     def _login_start(self):
         try:
             r = feishu.login_start()
@@ -307,8 +336,9 @@ def main():
     print(f"  访问地址：{url}")
     print(f"  工作目录：{ROOT}")
     ck = xhs_core.load_cookie()
+    st = feishu.load_settings()
     print(f"  Cookie  ：{'已配置' if ck else '未配置（请在页面设置中填写）'}")
-    print(f"  飞书    ：{feishu.load_settings()['base_url']}")
+    print(f"  飞书表格：{st['base_url'] if st.get('base_url') else '未创建（登录后在设置里点「创建我的表格」）'}")
     print("  关闭窗口或按 Ctrl+C 停止服务")
     print("=" * 52)
 

@@ -20,5 +20,7 @@ Thumbs.db
 portable/python/
 portable/tools/
 portable/data/
+# 便携版本机配置（Cookie + 表格坐标），绝不入库、也不进打包
+portable/config/
 build/
 dist/
