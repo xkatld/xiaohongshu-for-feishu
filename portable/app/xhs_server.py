@@ -20,13 +20,17 @@
     POST /api/login/start      发起飞书登录
     POST /api/login/finish     完成飞书登录
     GET  /api/img?u=           图片代理（绕过小红书防盗链）
+    GET  /api/local-img?       本地已保存的图片（data/images/<note_id>/xx.jpg）
+    POST /api/open-folder      在资源管理器里打开该笔记的本地图片文件夹
     GET  /api/export?format=   导出 csv / json
 """
 import os
+import re
 import sys
 import json
 import time
 import socket
+import subprocess
 import threading
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -91,6 +95,44 @@ def stats_of(notes):
         "pending": sum(1 for n in notes if not n.get("synced")),
         "types": dist,
     }
+
+
+# 本地最多给一条笔记存几张图（图文笔记最多 18 张，留点余量）
+LOCAL_IMAGE_LIMIT = 24
+# 本地图片文件名白名单，防目录穿越
+IMG_NAME_RE = re.compile(r"^[0-9a-zA-Z_\-\.]{1,64}$")
+
+
+def save_note_images(info):
+    """
+    把这条笔记的图片长期保存到 data/images/<note_id>/。
+
+    重新抓取时会先清掉旧图（作者可能删过图），避免新旧混在一起。
+    返回本地文件路径列表；任何一步失败都只返回已有结果，不抛异常。
+    """
+    note_id = (info or {}).get("note_id") or ""
+    d = store.note_image_dir(note_id, create=True)
+    if not d:
+        return []
+    try:
+        store.clear_note_images(note_id)
+        urls = info.get("images") or []
+        if not urls:
+            return []
+        return xhs_core.download_images(urls, d, limit=LOCAL_IMAGE_LIMIT)
+    except Exception:
+        return []
+
+
+def open_folder(path):
+    """在系统文件管理器里打开一个目录"""
+    if os.name == "nt":
+        os.startfile(path)  # noqa: S606
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", path])
+    else:
+        subprocess.Popen(["xdg-open", path])
+
 
 
 # ---------------------------------------------------------------- HTTP
@@ -174,8 +216,27 @@ class Handler(BaseHTTPRequestHandler):
             })
 
         if p == "/api/notes":
-            notes = store.load_notes()
+            notes = store.with_image_counts(store.load_notes())
             return self._json({"ok": True, "notes": notes, "stats": stats_of(notes)})
+
+        if p == "/api/local-img":
+            note_id = (q.get("note_id") or [""])[0]
+            name = (q.get("name") or [""])[0]
+            d = store.note_image_dir(note_id)
+            if not d or not IMG_NAME_RE.match(name):
+                return self._json({"ok": False, "error": "bad path"}, 400)
+            fp = os.path.join(d, name)
+            if not os.path.isfile(fp):
+                return self._json({"ok": False, "error": "not found"}, 404)
+            ext = os.path.splitext(name)[1].lower()
+            ctype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                     ".webp": "image/webp", ".gif": "image/gif", ".avif": "image/avif",
+                     ".bmp": "image/bmp", ".heic": "image/heic"}.get(ext, "application/octet-stream")
+            try:
+                with open(fp, "rb") as f:
+                    return self._bytes(f.read(), ctype)
+            except OSError:
+                return self._json({"ok": False, "error": "read error"}, 500)
 
         if p == "/api/img":
             url = (q.get("u") or [""])[0]
@@ -222,9 +283,14 @@ class Handler(BaseHTTPRequestHandler):
         if p == "/api/sync":
             return self._sync()
         if p == "/api/delete":
+            note_id = (body.get("note_id") or "").strip()
             with _lock:
-                ok = store.delete_note((body.get("note_id") or "").strip())
+                ok = store.delete_note(note_id)
+            # 记录没了，它自己的图片目录也没必要留着
+            store.clear_note_images(note_id)
             return self._json({"ok": ok})
+        if p == "/api/open-folder":
+            return self._open_folder(body)
         if p == "/api/settings":
             return self._settings(body)
         if p == "/api/app/init/start":
@@ -263,11 +329,14 @@ class Handler(BaseHTTPRequestHandler):
         except Exception as e:
             return self._json({"ok": False, "error": f"抓取出错：{e}", "kind": "fetch"})
 
-        # 先落本地，保证离线不丢数据
+        # ① 图片长期存到本地 data/images/<note_id>/（不依赖网络，随时能看）
+        files = save_note_images(info)
+
+        # ② 先落本地，保证离线不丢数据
         with _lock:
             action, _ = store.upsert_local(info, synced=False)
 
-        # 再尝试同步飞书
+        # ③ 再尝试同步飞书
         sync = {"synced": False, "message": ""}
         app_ok = feishu.app_config().get("configured")
         fs = feishu.auth_status()
@@ -279,7 +348,7 @@ class Handler(BaseHTTPRequestHandler):
             sync["message"] = "尚未创建飞书表格，已存本地（在设置里点「创建我的表格」）"
         else:
             try:
-                act, rid, imgs = feishu.upsert_note(info)
+                act, rid, imgs = feishu.upsert_note(info, local_files=files)
                 with _lock:
                     store.mark_synced(info["note_id"], rid)
                 tip = f"已{'更新' if act == 'updated' else '写入'}飞书"
@@ -289,8 +358,9 @@ class Handler(BaseHTTPRequestHandler):
             except Exception as e:
                 sync["message"] = f"飞书同步失败：{str(e)[:150]}"
 
-        notes = store.load_notes()
+        notes = store.with_image_counts(store.load_notes())
         return self._json({"ok": True, "note": info, "action": action,
+                           "local_images": len(files),
                            "sync": sync, "stats": stats_of(notes)})
 
     def _sync(self):
@@ -311,7 +381,9 @@ class Handler(BaseHTTPRequestHandler):
         last_err = ""
         for n in pending:
             try:
-                act, rid, imgs = feishu.upsert_note(n)
+                # 本地有图就直接复用，没图（老记录）才临时下载
+                local = store.list_note_images(n.get("note_id"))
+                act, rid, imgs = feishu.upsert_note(n, local_files=local)
                 with _lock:
                     store.mark_synced(n["note_id"], rid)
                 ok += 1
@@ -327,6 +399,21 @@ class Handler(BaseHTTPRequestHandler):
             msg += f"，失败 {fail} 条（{last_err}）"
         return self._json({"ok": True, "synced": ok, "failed": fail,
                            "images": img_total, "message": msg})
+
+    def _open_folder(self, body):
+        """在文件管理器里打开这条笔记的本地图片文件夹"""
+        note_id = (body.get("note_id") or "").strip()
+        d = store.note_image_dir(note_id)
+        if not d:
+            return self._json({"ok": False, "error": "note_id 不合法"})
+        try:
+            if not os.path.isdir(d):
+                os.makedirs(d, exist_ok=True)
+            open_folder(d)
+            return self._json({"ok": True, "path": d,
+                               "count": len(store.list_note_images(note_id))})
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)[:200], "path": d})
 
     def _settings(self, body):
         if "cookie" in body:

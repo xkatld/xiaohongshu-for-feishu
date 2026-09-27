@@ -627,9 +627,12 @@ def attachment_tokens(row, field=IMAGE_FIELD):
     return tokens
 
 
-def attach_note_images(record_id, info):
+def attach_note_images(record_id, info, local_files=None):
     """
-    下载笔记图片 → 上传到「图片」附件列，返回成功上传的张数。
+    把图片上传到「图片」附件列，返回成功上传的张数。
+
+    优先复用本地已经保存好的那批图（data/images/<note_id>/，抓取时存的），
+    本地没有才临时下载一份、传完即删 —— 避免同一张图下载两次。
 
     这是纯增强：任何一步失败都只记 0，绝不影响记录本身的写入。
     """
@@ -638,20 +641,24 @@ def attach_note_images(record_id, info):
     st = load_settings()
     if not st.get("upload_images", True):
         return 0
-    urls = info.get("images") or []
-    if not urls:
-        return 0
     try:
         limit = int(st.get("max_images") or 9)
     except (TypeError, ValueError):
         limit = 9
 
-    try:
-        files = xhs_core.download_images(
-            urls, os.path.join(TMP_DIR, "img"),
-            prefix=info.get("note_id") or "note", limit=limit)
-    except Exception:
-        return 0
+    files = [f for f in (local_files or []) if f and os.path.exists(f)][:limit]
+    temp = []
+    if not files:
+        urls = info.get("images") or []
+        if not urls:
+            return 0
+        try:
+            files = xhs_core.download_images(
+                urls, os.path.join(TMP_DIR, "img"),
+                prefix=(info.get("note_id") or "note") + "_", limit=limit)
+        except Exception:
+            return 0
+        temp = list(files)  # 临时中转的这一份，传完要删；本地保存的那份不动
     if not files:
         return 0
 
@@ -661,7 +668,7 @@ def attach_note_images(record_id, info):
     except Exception:
         n = 0
     finally:
-        for p in files:
+        for p in temp:
             try:
                 os.remove(p)
             except OSError:
@@ -815,11 +822,12 @@ def build_record(info):
     }
 
 
-def upsert_note(info):
+def upsert_note(info, local_files=None):
     """
     按 note_id 写入；已存在则更新。
     返回 (action, record_id, image_count)：action ∈ {created, updated}
 
+    local_files：本地已保存的图片路径，直接复用去传附件列（省一次下载）。
     「图片」附件列的处理：更新时先移除该记录原有的附件再重新上传，
     保证表格里的图和笔记当前内容一致，也不会越积越多。
     """
@@ -845,4 +853,4 @@ def upsert_note(info):
         rid = ids[0] if ids else ""
         action = "created"
 
-    return action, rid, attach_note_images(rid, info)
+    return action, rid, attach_note_images(rid, info, local_files)

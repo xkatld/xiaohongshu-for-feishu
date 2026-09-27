@@ -131,13 +131,14 @@ def _guess_ext(ctype, url):
     return ".jpg"
 
 
-def download_images(urls, dest_dir, prefix="note", limit=9,
+def download_images(urls, dest_dir, prefix="", limit=9,
                     max_bytes=12 * 1024 * 1024, timeout=30):
     """
     把笔记图片下载到本地目录，返回本地文件路径列表。
 
-    用于「飞书表格里图片直接显示」：多维表格的附件列只能上传本地文件，
-    不能直接吃外链，所以先落到 data/_tmp/img/ 再上传。
+    两种用途：
+      · 长期保存 —— data/images/<note_id>/01.jpg（prefix 留空，按序号命名）
+      · 临时中转 —— 飞书附件列只能上传本地文件，所以先落地再上传
     单张下载失败会被跳过（不影响其它图片，也不影响主流程）。
     """
     urls = [u for u in (urls or []) if u]
@@ -161,7 +162,7 @@ def download_images(urls, dest_dir, prefix="note", limit=9,
             continue
         if code != 200 or not blob or len(blob) < 1024 or len(blob) > max_bytes:
             continue
-        p = os.path.join(dest_dir, f"{prefix}_{i + 1}{_guess_ext(ctype, u)}")
+        p = os.path.join(dest_dir, f"{prefix}{i + 1:02d}{_guess_ext(ctype, u)}")
         try:
             with open(p, "wb") as f:
                 f.write(blob)

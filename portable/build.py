@@ -12,7 +12,8 @@
     3. 打包为 dist/xhs-workbench-portable-win.zip
 
 注意：打包时会自动排除 config/xhs_cookie.txt、config/settings.json 与
-data/notes.json —— 保证打包者自己的 Cookie、飞书表格地址、本地数据都不会外泄；
+data/notes.json、data/images/ —— 保证打包者自己的 Cookie、飞书表格地址、
+本地数据与笔记图片都不会外泄；
 使用者首次运行登录飞书后，程序会在 TA 自己的空间里新建一张表格。
 """
 import os
@@ -35,7 +36,7 @@ PY_URL = f"https://www.python.org/ftp/python/{PY_VER}/python-{PY_VER}-embed-amd6
 TOP_NAME = "xhs-workbench-portable"
 OUT_ZIP = os.path.join(DIST, "xhs-workbench-portable-win.zip")
 
-SKIP_DIRS = {"__pycache__", "_tmp"}
+SKIP_DIRS = {"__pycache__", "_tmp", "images"}
 SKIP_FILES = {
     os.path.join("config", "xhs_cookie.txt"),
     # 表格坐标必须由使用者登录后自行创建，绝不能把打包者自己的表格发出去

@@ -128,8 +128,15 @@
   .note-foot span{display:flex;align-items:center;gap:4px}
   .note-foot svg{width:13px;height:13px;fill:currentColor}
   .note-foot .lk{color:var(--red)}
-  .del{margin-left:auto;background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;font-family:inherit;padding:4px 6px}
+  .del{background:none;border:none;cursor:pointer;color:var(--muted);font-size:12px;font-family:inherit;padding:4px 6px}
   .del:hover{color:var(--red)}
+  /* 「打开文件夹」：一键定位到该笔记本地保存的图片目录 */
+  .folder{margin-left:auto;display:inline-flex;align-items:center;gap:4px;background:var(--bg);border:1px solid var(--line);border-radius:8px;cursor:pointer;color:var(--sub);font-size:12px;font-family:inherit;padding:4px 9px;white-space:nowrap}
+  .folder svg{width:13px;height:13px;fill:currentColor}
+  .folder:hover{color:var(--blue);border-color:#CFE0FF;background:#F4F8FF}
+  .folder.empty{opacity:.6}
+  .ltip{font-size:12px;color:var(--muted);margin:2px 0 10px;line-height:1.6}
+  .ltip b{color:var(--sub);font-weight:600}
   .empty{text-align:center;padding:52px 20px;color:var(--muted);font-size:13.5px}
   .empty svg{width:44px;height:44px;fill:#D8DCE1;margin-bottom:12px;display:inline-block}
   .skeleton{height:110px;border-radius:14px;background:linear-gradient(90deg,#F2F3F5 25%,#E9EBEE 50%,#F2F3F5 75%);background-size:200% 100%;animation:sk 1.3s infinite;margin-bottom:12px}
@@ -368,6 +375,7 @@
         <button class="chip" data-f="pending">待同步</button>
       </div>
     </div>
+    <div class="ltip">抓取时图片会一并存到本机 <b>data/images/&lt;笔记ID&gt;/</b>，离线也能看；点卡片上的「打开文件夹」直接定位到该笔记的图片目录。</div>
     <div id="noteList"><div class="skeleton"></div><div class="skeleton"></div></div>
     <div class="pager" id="pager"></div>
   </section>
@@ -681,7 +689,8 @@ const ICON = {
   like: '<svg viewBox="0 0 24 24"><path d="M12 21s-8-4.9-8-10.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 3.5C20 16.1 12 21 12 21Z"/></svg>',
   star: '<svg viewBox="0 0 24 24"><path d="m12 17.3-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7Z"/></svg>',
   chat: '<svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Z"/></svg>',
-  share: '<svg viewBox="0 0 24 24"><path d="M18 16a3 3 0 0 0-2.2 1L9.9 13.6a3 3 0 0 0 0-3.2l5.9-3.4A3 3 0 1 0 15 5l-5.9 3.4a3 3 0 1 0 0 7.2L15 19a3 3 0 1 0 3-3Z"/></svg>'
+  share: '<svg viewBox="0 0 24 24"><path d="M18 16a3 3 0 0 0-2.2 1L9.9 13.6a3 3 0 0 0 0-3.2l5.9-3.4A3 3 0 1 0 15 5l-5.9 3.4a3 3 0 1 0 0 7.2L15 19a3 3 0 1 0 3-3Z"/></svg>',
+  folder: '<svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-8Z"/></svg>'
 };
 
 /* 筛选 + 搜索后的结果集 */
@@ -704,9 +713,17 @@ function noteHtml(n){
     ? `<span class="badge sync">已同步</span>`
     : `<span class="badge nosync">待同步</span>`;
   const img = (n.images && n.images[0]) || "";
-  const thumb = img
-    ? `<img class="thumb" src="/api/img?u=${encodeURIComponent(img)}" alt="" loading="lazy">`
+  // 本地已存的图优先（离线也能看），没存过才回落到小红书外链代理
+  const localSrc = n.local_images && n.local_first
+    ? `/api/local-img?note_id=${encodeURIComponent(n.note_id)}&name=${encodeURIComponent(n.local_first)}`
+    : "";
+  const src = localSrc || (img ? `/api/img?u=${encodeURIComponent(img)}` : "");
+  const thumb = src
+    ? `<img class="thumb" src="${src}" alt="" loading="lazy">`
     : `<div class="thumb"></div>`;
+  const folder = n.local_images
+    ? `<button class="folder" data-folder="${esc(n.note_id)}">${ICON.folder}打开文件夹 (${n.local_images})</button>`
+    : `<button class="folder empty" data-folder="${esc(n.note_id)}">${ICON.folder}打开文件夹</button>`;
   return `<div class="note">
       ${thumb}
       <div class="note-b">
@@ -723,6 +740,7 @@ function noteHtml(n){
           <span>${ICON.star}${fmtNum(toInt(n.collected))}</span>
           <span>${ICON.chat}${fmtNum(toInt(n.comment))}</span>
           <span>${ICON.share}${fmtNum(toInt(n.share))}</span>
+          ${folder}
           <button class="del" data-del="${esc(n.note_id)}">删除</button>
         </div>
       </div>
@@ -933,7 +951,7 @@ async function submitFetch(){
     ptxt.textContent = `0 / ${items.length}`;
   }
 
-  let ok = 0, fail = 0, lastErr = "", syncedCount = 0;
+  let ok = 0, fail = 0, lastErr = "", syncedCount = 0, imgCount = 0;
   for (let i = 0; i < items.length; i++){
     const label = items.length > 1 ? `（${i + 1}/${items.length}）` : "";
     $("fetchTxt").textContent = "抓取中" + label;
@@ -944,7 +962,7 @@ async function submitFetch(){
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ url: items[i] })
       });
-      if (d.ok){ ok++; if (d.sync && d.sync.synced) syncedCount++; }
+      if (d.ok){ ok++; imgCount += d.local_images || 0; if (d.sync && d.sync.synced) syncedCount++; }
       else { fail++; lastErr = d.error || "未知错误"; }
     }catch(e){ fail++; lastErr = e.message; }
     if (showProg) fill.style.width = ((i + 1) / items.length * 100).toFixed(1) + "%";
@@ -961,7 +979,8 @@ async function submitFetch(){
 
   if (ok && !fail){
     const fsMsg = syncedCount ? `，其中 ${syncedCount} 条已同步飞书` : "，已存本地";
-    showMsg("ok", `✅ 成功抓取 ${ok} 条${fsMsg}`);
+    const imgMsg = imgCount ? `；图片已存到本机 ${imgCount} 张（笔记卡片上可「打开文件夹」）` : "";
+    showMsg("ok", `✅ 成功抓取 ${ok} 条${fsMsg}${imgMsg}`);
     $("urlInput").value = "";
   }else if (ok && fail){
     showMsg("warn", `部分成功：${ok} 条成功，${fail} 条失败。最后错误：${lastErr}`);
@@ -1145,6 +1164,24 @@ document.addEventListener("DOMContentLoaded", () => {
   });
 
   $("noteList").addEventListener("click", async e => {
+    const fbtn = e.target.closest("[data-folder]");
+    if (fbtn) {
+      fbtn.disabled = true;
+      try {
+        const r = await api("/api/open-folder", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ note_id: fbtn.dataset.folder })
+        });
+        if (r && r.ok === false) toast(r.error || "打开失败");
+        else toast(r.count ? `已打开文件夹（${r.count} 张图）` : "已打开文件夹（还没有图片，重新抓取这条笔记即可保存）");
+      } catch (err) {
+        toast("打开失败：" + (err.message || err));
+      } finally {
+        fbtn.disabled = false;
+      }
+      return;
+    }
+
     const btn = e.target.closest("[data-del]");
     if (!btn) return;
     if (!confirm("确定删除这条本地记录？（不影响飞书）")) return;

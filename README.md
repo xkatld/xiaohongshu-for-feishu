@@ -145,6 +145,7 @@ xhs-workbench-portable/
 | 双轨存储 | 抓取结果先落本地 `data/notes.json`，飞书作为云端同步；断网也能用 |
 | 主区 Tab + 分页 | 抓取 / 概览 / 笔记 / 设置 四个 Tab；笔记列表前端分页，只渲染当前页，上百条也不卡 |
 | 图片直显 | 外链图片先落到 `data/_tmp/`，再用 `+record-upload-attachment` 传进「图片」附件列；「图片链接」文本列同时保留 |
+| 图片本地留存 | 抓取时图片长期存到 `data/images/<note_id>/`，断网可看；列表卡片可一键「打开文件夹」，同步飞书直接复用这份本地图 |
 | 免配置迁移 | `lark-cli.exe` 为自包含单文件，无需 Node 环境 |
 | Cookie 不入包 | 打包时排除 `config/xhs_cookie.txt`，新电脑在页面「设置」里填一次即可 |
 | 表格不入包 | 打包时排除 `config/settings.json`，使用者登录后自行建表，绝不外泄开发者的表格 |
@@ -165,11 +166,12 @@ xhs-workbench-portable/
 
 实现链路：
 
-1. 抓到的外链图片先下载到本机 `data/_tmp/img/`（请求带 `Referer` 绕过小红书防盗链）；
+1. 抓到笔记后先把图片下载到本机 `data/images/<note_id>/`（请求带 `Referer` 绕过小红书防盗链）；
 2. `base +record-upload-attachment --field-id 图片 --file ...` 上传。CLI 内部是三步：
    读字段确认是附件列 → `drive/v1/medias/upload_all` → `base/v3/.../append_attachments`，
    上传的图片会带 `image_width` / `image_height`，所以表格里能直接渲染；
-3. 上传后立即删除本地临时文件，本机不留副本。
+3. 抓取时这批图其实**已经长期存在本地** `data/images/<note_id>/`，同步时直接复用，不再重复下载；
+   只有升级前的老记录（本地没图）才会临时下到 `data/_tmp/img/`，传完即删。
 
 几个刻意的设计：
 
@@ -178,6 +180,32 @@ xhs-workbench-portable/
 - `build_record()` 刻意**不含**「图片」键 —— 附件只能由专用 shortcut 写，混进 `record-batch-*` 会被过滤；
 - 老表通过 `ensure_fields()` 自动补列：`+field-list` 比一次，缺啥用 `+field-create` 补差集，每张表只核对一次；
 - 单张下载/上传失败只跳过这张图，不影响记录本身写入。
+
+### 图片本地保存 + 打开文件夹
+
+抓取一条笔记时，程序顺带把它的图片**长期保存到本机**：
+
+```
+data/images/<note_id>/01.jpg、02.jpg、03.png …
+```
+
+- 文件名是两位序号（`01`…`24`），后缀按响应的 `Content-Type` 推断，天然按原顺序排好；
+- 一条笔记一个目录，最多 24 张；重新抓同一条会先清掉旧图再存新的，避免新旧混在一起；
+- 列表页的缩略图**优先用本地图**（`/api/local-img`），断网也能看，不再依赖小红书外链；
+- 「笔记」列表每张卡片右下角有「打开文件夹」按钮，点一下就在资源管理器里定位到该笔记的图片目录，
+  按钮上会带上已存张数（如「打开文件夹 (9)」）；
+- 删除记录时会顺手清掉这条笔记自己的图片；**只删该目录下的图片文件**，不递归、不碰别的目录。
+
+相关接口：
+
+| 接口 | 用途 |
+|---|---|
+| `GET /api/local-img?note_id=&name=` | 读取本地已存的图片（文件名走白名单，防目录穿越） |
+| `POST /api/open-folder` | 在系统文件管理器里打开 `data/images/<note_id>/` |
+| `GET /api/notes` | 每条记录附带 `local_images`（张数）与 `local_first`（首图名） |
+
+安全上做了两道校验：`note_id` 必须匹配 `^[0-9a-zA-Z_\-]{1,64}$`，图片文件名必须匹配 `^[0-9a-zA-Z_\-\.]{1,64}$`，
+所以 `../`、`a/b` 这类输入会被直接拒绝，走不出 `data/images/` 这一层。
 
 ### 界面：Tab 导航 + 列表分页
 
