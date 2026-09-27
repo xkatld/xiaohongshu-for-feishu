@@ -3,15 +3,24 @@
 飞书多维表格操作层
 --------------------------------------------------
 通过便携包内置的 lark-cli（tools/lark-cli.exe）完成：
-  · 登录状态检查 / Device Flow 扫码登录
-  · 读取多维表格记录
-  · 新增 / 更新记录（按 note_id 去重）
+  · 绑定"使用者自己的"飞书应用（config init）
+  · 登录状态检查 / Device Flow 登录
+  · 新建多维表格、读取 / 写入记录（按 note_id 去重）
+
+重要：本项目是开源工具，**每个使用者都必须使用自己的飞书应用**。
+本仓库不附带、也不携带任何作者本人的应用凭据；lark-cli 的应用配置
+保存在使用者自己的用户目录（~/.lark-cli/config.json），不在分发包内。
 
 所有调用均为本地子进程，不做任何第三方依赖。
 """
 import os
+import re
+import ssl
 import json
+import time
+import threading
 import subprocess
+import urllib.request
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
@@ -95,7 +104,11 @@ def tmp_file(prefix, suffix):
 
 
 def run(args, timeout=120):
-    """执行 lark-cli，返回解析后的 dict"""
+    """执行 lark-cli，返回解析后的 dict。
+
+    注意：lark-cli 成功时输出到 stdout，报错时**输出到 stderr**，
+    两边都可能是 JSON，所以两处都要尝试解析。
+    """
     exe = cli_path()
     try:
         proc = subprocess.run(
@@ -110,22 +123,234 @@ def run(args, timeout=120):
 
     out = (proc.stdout or "").strip()
     err = (proc.stderr or "").strip()
+
+    for candidate in (out, err):
+        if not candidate:
+            continue
+        try:
+            return json.loads(candidate)
+        except json.JSONDecodeError:
+            start = candidate.find("{")
+            end = candidate.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    return json.loads(candidate[start:end + 1])
+                except json.JSONDecodeError:
+                    pass
+
     if not out:
         if err:
             raise FeishuError(err[:300])
         return {}
+    raise FeishuError(f"lark-cli 返回无法解析：{out[:200]}")
+
+
+def _err_msg(err, default="未绑定"):
+    """把 lark-cli 的错误对象/字符串统一成一句人话"""
+    if isinstance(err, dict):
+        return err.get("message") or err.get("subtype") or default
+    if isinstance(err, str) and err.strip():
+        return err.strip()[:200]
+    return default
+
+
+# ---------------------------------------------------------------- 飞书应用（使用者各自一份）
+# 开源项目不能让别人去授权作者的应用，所以使用者必须自己拥有一个飞书应用。
+# 两种获得方式：① 走飞书官方向导自动创建（config init --new）
+#              ② 已有自建应用的人，直接填 App ID / App Secret
+_INIT = {"proc": None, "url": "", "code": "", "started": 0.0}
+
+
+def app_config():
+    """读取当前绑定的飞书应用；未绑定时 configured=False"""
     try:
-        return json.loads(out)
-    except json.JSONDecodeError:
-        # 输出可能混有日志行，取最后一个完整 JSON 对象
-        start = out.find("{")
-        end = out.rfind("}")
-        if start >= 0 and end > start:
-            try:
-                return json.loads(out[start:end + 1])
-            except json.JSONDecodeError:
-                pass
-        raise FeishuError(f"lark-cli 返回无法解析：{out[:200]}")
+        r = run(["config", "show"], timeout=60)
+    except FeishuError as e:
+        return {"configured": False, "app_id": "", "error": str(e)}
+    if isinstance(r, dict) and r.get("ok") is False:
+        return {"configured": False, "app_id": "", "error": _err_msg(r.get("error"))}
+    return {
+        "configured": bool(r.get("appId")),
+        "app_id": r.get("appId") or "",
+        "brand": r.get("brand") or "feishu",
+        "error": "",
+    }
+
+
+def _drain(proc):
+    """把子进程剩余输出读掉，避免管道写满导致其卡死"""
+    try:
+        for _ in proc.stdout:
+            pass
+    except Exception:
+        pass
+
+
+def config_path():
+    """lark-cli 的应用配置（存使用者自己的用户目录，不在本项目内）"""
+    return os.path.join(os.path.expanduser("~"), ".lark-cli", "config.json")
+
+
+def _config_snapshot():
+    try:
+        with open(config_path(), "rb") as f:
+            return f.read()
+    except OSError:
+        return None
+
+
+def _config_restore(blob):
+    """回滚配置；blob 为 None 表示原来就没有该文件"""
+    try:
+        if blob is None:
+            if os.path.exists(config_path()):
+                os.remove(config_path())
+            return
+        os.makedirs(os.path.dirname(config_path()), exist_ok=True)
+        with open(config_path(), "wb") as f:
+            f.write(blob)
+    except OSError:
+        pass
+
+
+def app_init_start(timeout=45):
+    """
+    后台启动 `config init --new`：飞书会在浏览器里引导使用者创建（或选择）
+    属于自己的应用。该进程会阻塞到用户在浏览器里完成为止，这里只负责把
+    验证链接和 user_code 取出来交给前端。
+    """
+    global _INIT
+    proc = _INIT.get("proc")
+    if proc is not None and proc.poll() is None:
+        return {"verification_url": _INIT["url"], "user_code": _INIT["code"], "running": True}
+
+    exe = cli_path()
+    try:
+        proc = subprocess.Popen(
+            [exe, "config", "init", "--new"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace",
+            env=dict(os.environ, LARK_CLI_NO_PROMPT="1"),
+        )
+    except FileNotFoundError:
+        raise FeishuError("未找到 lark-cli，请确认 tools/lark-cli.exe 存在")
+
+    url, code = "", ""
+    deadline = time.time() + timeout
+    while time.time() < deadline:
+        line = proc.stdout.readline()
+        if not line:
+            break
+        m = re.search(r"https?://[^\s]+", line)
+        if m and "open.feishu" in m.group(0):
+            url = m.group(0).strip().rstrip(".,;")
+            q = re.search(r"user_code=([A-Za-z0-9\-]+)", url)
+            code = q.group(1) if q else ""
+            break
+
+    if not url:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+        raise FeishuError("未能取到应用配置链接，请重试")
+
+    threading.Thread(target=_drain, args=(proc,), daemon=True).start()
+    _INIT = {"proc": proc, "url": url, "code": code, "started": time.time()}
+    return {"verification_url": url, "user_code": code, "running": True}
+
+
+def app_init_status():
+    """轮询用：看用户是否已在浏览器里完成应用创建"""
+    cfg = app_config()
+    proc = _INIT.get("proc")
+    return {
+        "configured": cfg.get("configured", False),
+        "app_id": cfg.get("app_id", ""),
+        "running": bool(proc is not None and proc.poll() is None),
+        "verification_url": _INIT.get("url", ""),
+        "user_code": _INIT.get("code", ""),
+        "error": cfg.get("error", ""),
+    }
+
+
+def app_bind(app_id, app_secret, brand="feishu"):
+    """
+    手动绑定使用者已有的自建应用凭据（Secret 走 stdin，不进进程列表）。
+
+    安全设计：**先向飞书校验凭据，通过了才写本机配置**，
+    并对 config.json 做快照，任何异常都会回滚 —— 绝不把无效凭据留在本机。
+    """
+    app_id = (app_id or "").strip()
+    app_secret = (app_secret or "").strip()
+    if not app_id or not app_secret:
+        raise FeishuError("请填写 App ID 与 App Secret")
+    if not app_id.startswith("cli_"):
+        raise FeishuError("App ID 应以 cli_ 开头，请检查是否填错")
+
+    # 1) 先校验，不合格直接拒绝，不碰本机配置
+    _verify_app_credentials(app_id, app_secret)
+
+    # 2) 校验通过后再写入，并保留快照以便失败回滚
+    snapshot = _config_snapshot()
+    args = [cli_path(), "config", "init", "--app-id", app_id, "--app-secret-stdin"]
+    if brand:
+        args += ["--brand", brand]
+    try:
+        try:
+            proc = subprocess.run(args, input=app_secret + "\n",
+                                  capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", timeout=90)
+        except subprocess.TimeoutExpired:
+            raise FeishuError("绑定超时，请检查网络后重试")
+
+        out = ((proc.stdout or "") + "\n" + (proc.stderr or "")).strip()
+        cfg = app_config()
+        if not cfg.get("configured") or cfg.get("app_id") != app_id:
+            m = re.search(r'"message"\s*:\s*"([^"]+)"', out)
+            raise FeishuError("写入失败：" + (m.group(1) if m else out[:200]))
+        return cfg
+    except Exception:
+        _config_restore(snapshot)
+        raise
+
+
+def _verify_app_credentials(app_id, app_secret):
+    """向飞书换取 tenant_access_token 以确认凭据有效（不写任何本地配置）"""
+    payload = json.dumps({"app_id": app_id, "app_secret": app_secret}).encode("utf-8")
+    req = urllib.request.Request(
+        "https://open.feishu.cn/open-apis/auth/v3/tenant_access_token/internal",
+        data=payload, headers={"Content-Type": "application/json; charset=utf-8"})
+    try:
+        ctx = ssl.create_default_context()
+    except Exception:
+        ctx = None
+    try:
+        with urllib.request.urlopen(req, timeout=20, context=ctx) as r:
+            d = json.loads(r.read().decode("utf-8"))
+    except Exception as e:
+        raise FeishuError("无法连接飞书校验凭据，请检查网络：" + str(e)[:120])
+    if d.get("code") != 0:
+        raise FeishuError("App ID 或 App Secret 不正确：" + str(d.get("msg") or d.get("code")))
+    return True
+
+
+def app_reset():
+    """解除应用绑定：清空凭据与登录态（换用另一个应用时使用）"""
+    global _INIT
+    proc = _INIT.get("proc")
+    if proc is not None and proc.poll() is None:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+    _INIT = {"proc": None, "url": "", "code": "", "started": 0.0}
+    try:
+        run(["config", "remove"], timeout=60)
+    except FeishuError:
+        pass
+    return app_config()
 
 
 # ---------------------------------------------------------------- 建表（每个账号各自一份）
@@ -167,7 +392,7 @@ def list_tables(base_token):
     """列出某个 base 下的所有表"""
     res = run(["base", "+table-list", "--base-token", base_token, "--as", "user"], timeout=90)
     if isinstance(res, dict) and res.get("ok") is False:
-        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+        raise FeishuError(_err_msg(res.get("error")))
     data = (res.get("data") if isinstance(res, dict) else None) or {}
     return data.get("tables") or data.get("items") or []
 
@@ -189,7 +414,7 @@ def provision_base(name=BASE_NAME, table_name=TABLE_NAME):
     ], timeout=180)
 
     if isinstance(res, dict) and res.get("ok") is False:
-        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+        raise FeishuError(_err_msg(res.get("error")))
 
     base_token = _dig(res, [
         ["data", "base", "base_token"], ["data", "base_token"],
@@ -283,7 +508,7 @@ def list_records():
     ], timeout=180)
 
     if isinstance(res, dict) and res.get("ok") is False:
-        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+        raise FeishuError(_err_msg(res.get("error")))
 
     out_path = (res.get("record_file") if isinstance(res, dict) else None) or path
     if not os.path.exists(out_path):
@@ -323,7 +548,7 @@ def create_records(records):
         except OSError:
             pass
     if not res.get("ok"):
-        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+        raise FeishuError(_err_msg(res.get("error")))
     data = res.get("data") or {}
     return data.get("record_id_list") or []
 
@@ -348,7 +573,7 @@ def update_record(record_id, record):
         except OSError:
             pass
     if not res.get("ok"):
-        raise FeishuError(json.dumps(res.get("error"), ensure_ascii=False))
+        raise FeishuError(_err_msg(res.get("error")))
     return True
 
 

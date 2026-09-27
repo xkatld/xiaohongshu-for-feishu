@@ -69,6 +69,24 @@
   .pending.info{background:#EAF2FF;border-color:#C7DEFF;color:#1D5CC4}
   .pending.info button{background:var(--blue)}
 
+  /* 首次使用引导 */
+  .guide{border-color:#C7DEFF;background:linear-gradient(180deg,#F7FAFF,#fff)}
+  .steps{margin-top:2px}
+  .step{display:flex;gap:12px;align-items:flex-start;padding:13px 0;border-bottom:1px dashed var(--line)}
+  .step:last-child{border-bottom:none;padding-bottom:2px}
+  .step-no{width:24px;height:24px;border-radius:50%;background:var(--bg);color:var(--sub);font-size:12.5px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px}
+  .step.done .step-no{background:#EAFBF1;color:#04794A}
+  .step-b{flex:1;min-width:0}
+  .step-t{font-size:14px;font-weight:600;margin-bottom:3px}
+  .step-d{font-size:12px;color:var(--muted);line-height:1.6;word-break:break-all}
+  .step-btn{min-height:34px;padding:0 14px;border-radius:9px;border:none;background:var(--red);color:#fff;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;flex:none;align-self:center;white-space:nowrap}
+  .step-btn.ghost{background:var(--bg);color:var(--sub)}
+  .step-btn:disabled{opacity:.5;cursor:not-allowed}
+  .step.done .step-btn{display:none}
+  .set-block details{margin-top:9px}
+  .set-block summary{font-size:12.5px;color:var(--sub);cursor:pointer;padding:5px 0}
+  .set-block details input{margin-top:8px}
+
   /* 概览 */
   .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
   .metric{background:linear-gradient(180deg,#FCFCFD,#F7F8FA);border:1px solid var(--line);border-radius:14px;padding:14px 15px}
@@ -187,11 +205,40 @@
     <button id="syncBtn">一键同步到飞书</button>
   </div>
 
-  <!-- 首次使用：在当前账号自己的空间里建表 -->
-  <div class="pending info" id="setupBar">
-    <span id="setupBarTxt">还没有你的飞书表格，创建后数据只存在你自己的飞书空间</span>
-    <button id="setupBarBtn">立即创建</button>
-  </div>
+  <!-- 首次使用引导：绑定自己的应用 → 登录 → 建表 -->
+  <section class="card guide" id="guideCard">
+    <div class="card-hd">
+      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4Zm0 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/></svg>
+      <h2>首次使用 · 三步</h2>
+      <span class="hint">配置只保存在本机</span>
+    </div>
+    <div class="steps">
+      <div class="step" id="stepApp">
+        <span class="step-no">1</span>
+        <div class="step-b">
+          <div class="step-t">绑定你自己的飞书应用</div>
+          <div class="step-d" id="stepAppDesc">本工具不附带任何人的应用凭据，点右侧按钮在飞书官方向导里创建属于你的应用。</div>
+        </div>
+        <button class="step-btn" id="stepAppBtn">去创建</button>
+      </div>
+      <div class="step" id="stepLogin">
+        <span class="step-no">2</span>
+        <div class="step-b">
+          <div class="step-t">登录你的飞书账号</div>
+          <div class="step-d" id="stepLoginDesc">用你自己的账号登录，登录的是你自己的应用。</div>
+        </div>
+        <button class="step-btn" id="stepLoginBtn">去登录</button>
+      </div>
+      <div class="step" id="stepBase">
+        <span class="step-no">3</span>
+        <div class="step-b">
+          <div class="step-t">创建你的飞书表格</div>
+          <div class="step-d" id="stepBaseDesc">在你自己的空间里新建一张多维表格，字段结构自动建好。</div>
+        </div>
+        <button class="step-btn" id="stepBaseBtn">创建</button>
+      </div>
+    </div>
+  </section>
 
   <!-- 录入 -->
   <section class="card">
@@ -258,6 +305,20 @@
   </div>
 
   <div class="set-block">
+    <h4>飞书应用</h4>
+    <p>本工具使用<b>你自己的</b>飞书应用。App ID / Secret 只保存在本机（用户目录），不会上传、也不会随本项目分发。</p>
+    <div class="kv"><span>当前应用</span><span id="sAppId">-</span></div>
+    <button class="btn btn-o" id="appInitBtn">创建 / 更换我的飞书应用</button>
+    <button class="btn btn-g" id="appResetBtn">解除应用绑定</button>
+    <details>
+      <summary>我已有自建应用，手动填写</summary>
+      <input id="appIdInput" placeholder="App ID（cli_ 开头）">
+      <input id="appSecretInput" type="password" placeholder="App Secret">
+      <button class="btn btn-o" id="appBindBtn">保存并验证</button>
+    </details>
+  </div>
+
+  <div class="set-block">
     <h4>飞书账号</h4>
     <div class="kv"><span>状态</span><span id="sFsStatus">-</span></div>
     <div class="kv"><span>账号</span><span id="sFsUser">-</span></div>
@@ -306,11 +367,25 @@
   </div>
 </div>
 
+<!-- 创建/绑定飞书应用弹窗 -->
+<div class="modal" id="appModal">
+  <div class="modal-b">
+    <h3>创建你自己的飞书应用</h3>
+    <p class="sub">在浏览器中打开下面的链接，按飞书官方引导完成应用创建。完成后回到这里，程序会自动检测并绑定。</p>
+    <div class="link-box" id="appUrl">-</div>
+    <div class="code-box" id="appCode">-</div>
+    <button class="btn btn-p" id="openAppUrl">打开创建页面</button>
+    <button class="btn btn-o" id="checkAppBtn">我已完成，检测绑定</button>
+    <button class="btn btn-g" id="cancelApp">取消</button>
+    <p class="sub" id="appPollHint" style="margin-top:12px"></p>
+  </div>
+</div>
+
 <div id="toast"></div>
 
 <script>
 /* ============ 状态 ============ */
-const state = { notes: [], stats: {}, feishu: {}, cookie: {}, filter: "all", busy: false, deviceCode: "" };
+const state = { notes: [], stats: {}, feishu: {}, cookie: {}, app: {}, steps: {}, filter: "all", busy: false, deviceCode: "", appPoll: null };
 const $ = id => document.getElementById(id);
 
 /* ============ 工具 ============ */
@@ -335,7 +410,12 @@ async function api(path, opt){
 async function loadAll(){
   try{
     const [st, nt] = await Promise.all([api("/api/status"), api("/api/notes")]);
-    if (st.ok){ state.feishu = st.feishu || {}; state.cookie = st.cookie || {}; }
+    if (st.ok){
+      state.feishu = st.feishu || {};
+      state.cookie = st.cookie || {};
+      state.app = st.app || {};
+      state.steps = st.steps || {};
+    }
     if (nt.ok){ state.notes = nt.notes || []; state.stats = nt.stats || {}; }
   }catch(e){
     showMsg("err", "无法连接本地服务：" + e.message);
@@ -349,12 +429,16 @@ function renderStatus(){
   const dot = $("fsDot"), txt = $("fsTxt");
   const provisioned = !!fs.provisioned;
 
-  if (fs.logged_in && provisioned){
+  const steps = state.steps || {};
+
+  if (steps.app && steps.login && steps.base){
     dot.className = "dot"; txt.textContent = "飞书已连接";
-  }else if (fs.logged_in){
-    dot.className = "dot warn"; txt.textContent = "待创建表格";
-  }else{
+  }else if (!steps.app){
+    dot.className = "dot warn"; txt.textContent = "待绑定应用";
+  }else if (!steps.login){
     dot.className = "dot warn"; txt.textContent = "飞书未登录";
+  }else{
+    dot.className = "dot warn"; txt.textContent = "待创建表格";
   }
   $("fsLink").innerHTML = fs.base_url
     ? `<a href="${esc(fs.base_url)}" target="_blank" rel="noopener">打开我的飞书表格 ↗</a>` : "";
@@ -367,14 +451,16 @@ function renderStatus(){
   $("baseTokenInput").value = fs.base_token || "";
   $("tableIdInput").value = fs.table_id || "";
 
+  // ---- 飞书应用 ----
+  const app = state.app || {};
+  $("sAppId").textContent = app.configured ? app.app_id : "未绑定";
+  $("appInitBtn").textContent = app.configured ? "更换我的飞书应用" : "创建我的飞书应用";
+
   // 建表按钮
   $("setupBtn").textContent = provisioned ? "再建一张新表格" : "创建我的飞书表格";
   $("setupBtn").disabled = !fs.logged_in;
 
-  // 顶部「还没有自己的表格」提示条
-  const sbar = $("setupBar");
-  if (fs.needs_setup) sbar.classList.add("on");
-  else sbar.classList.remove("on");
+  renderGuide();
 
   const ck = state.cookie || {};
   $("sCkStatus").textContent = ck.configured ? ("已配置（" + ck.length + " 字符）") : "未配置";
@@ -388,6 +474,40 @@ function renderStatus(){
   }else{
     bar.classList.remove("on");
   }
+}
+
+/* 首次使用三步引导（应用 → 登录 → 建表） */
+function renderGuide(){
+  const steps = state.steps || {};
+  const app = state.app || {};
+  const fs = state.feishu || {};
+
+  const mark = (elId, ok, no) => {
+    const el = $(elId);
+    el.classList.toggle("done", ok);
+    el.querySelector(".step-no").textContent = ok ? "✓" : no;
+  };
+  mark("stepApp", !!steps.app, "1");
+  mark("stepLogin", !!steps.login, "2");
+  mark("stepBase", !!steps.base, "3");
+
+  // 后一步依赖前一步
+  $("stepLoginBtn").disabled = !steps.app;
+  $("stepBaseBtn").disabled = !(steps.app && steps.login);
+
+  $("stepAppDesc").textContent = steps.app
+    ? ("已绑定：" + (app.app_id || ""))
+    : "本工具不附带任何人的应用凭据，点右侧按钮在飞书官方向导里创建属于你的应用。";
+  $("stepLoginDesc").textContent = !steps.app
+    ? "请先完成第 1 步。"
+    : (steps.login ? ("已登录：" + (fs.user || "")) : "用你自己的账号登录，登录的是你自己的应用。");
+  $("stepBaseDesc").textContent = !steps.login
+    ? "请先完成前两步。"
+    : (steps.base ? "已创建，抓到的数据会写入你自己的飞书表格。"
+                  : "在你自己的空间里新建一张多维表格，字段结构自动建好。");
+
+  $("stepBaseBtn").textContent = steps.base ? "再建一张" : "创建";
+  $("guideCard").style.display = (steps.app && steps.login && steps.base) ? "none" : "";
 }
 
 function renderStats(){
@@ -474,17 +594,100 @@ function renderList(){
 /* ============ 统一刷新入口 ============ */
 function refreshAll(){ renderStatus(); renderStats(); renderList(); }
 
+/* ============ 飞书应用（每个使用者各自一份） ============ */
+async function doAppInit(){
+  const app = state.app || {};
+  if (app.configured &&
+      !confirm("当前已绑定应用 " + app.app_id + "。\n\n确定要创建 / 更换吗？\n新应用会替换当前绑定，之后需要重新登录并重新建表。")) return;
+
+  $("appModal").classList.add("on");
+  $("appUrl").textContent = "正在启动飞书官方配置向导…";
+  $("appCode").textContent = "-";
+  $("appPollHint").textContent = "";
+  try{
+    const d = await api("/api/app/init/start", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
+    if (!d.ok){ $("appUrl").textContent = "启动失败：" + (d.error || "未知错误"); return; }
+    $("appUrl").textContent = d.verification_url;
+    $("appCode").textContent = d.user_code || "-";
+    window.open(d.verification_url, "_blank");
+    startAppPoll();
+  }catch(e){
+    $("appUrl").textContent = "启动失败：" + e.message;
+  }
+}
+
+function startAppPoll(){
+  stopAppPoll();
+  state.appPoll = setInterval(async () => {
+    try{
+      const d = await api("/api/app/init/check", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+      });
+      if (d.ok && d.app && d.app.configured) await appBound(d.app.app_id);
+    }catch(e){ /* 轮询失败忽略，下次再试 */ }
+  }, 3000);
+}
+
+function stopAppPoll(){ if (state.appPoll){ clearInterval(state.appPoll); state.appPoll = null; } }
+
+async function appBound(appId){
+  stopAppPoll();
+  $("appModal").classList.remove("on");
+  toast("应用绑定成功：" + appId);
+  await loadAll();
+}
+
+async function checkAppNow(){
+  $("appPollHint").textContent = "检测中…";
+  try{
+    const d = await api("/api/app/init/check", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+    });
+    if (d.ok && d.app && d.app.configured) return appBound(d.app.app_id);
+    $("appPollHint").textContent = "还没检测到，请确认已在浏览器中完成创建，然后重试。";
+  }catch(e){ $("appPollHint").textContent = "检测失败：" + e.message; }
+}
+
+async function doAppBind(){
+  const id = $("appIdInput").value.trim();
+  const sec = $("appSecretInput").value.trim();
+  if (!id || !sec){ toast("请填写 App ID 与 App Secret"); return; }
+  const btn = $("appBindBtn");
+  btn.disabled = true; btn.textContent = "验证中…";
+  try{
+    const d = await api("/api/app/bind", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ app_id: id, app_secret: sec })
+    });
+    if (d.ok){ toast("已绑定：" + ((d.app && d.app.app_id) || id)); $("appSecretInput").value = ""; await loadAll(); }
+    else toast("绑定失败：" + (d.error || ""));
+  }catch(e){ toast("绑定失败：" + e.message); }
+  btn.disabled = false; btn.textContent = "保存并验证";
+}
+
+async function doAppReset(){
+  if (!confirm("确定解除应用绑定吗？\n\n会清除本机保存的 App ID / Secret、登录状态和表格坐标，\n之后需要重新绑定应用 → 登录 → 建表。\n\n本地已抓取的记录不受影响。")) return;
+  stopAppPoll();
+  const d = await api("/api/app/reset", {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: "{}"
+  });
+  if (d.ok){ toast("已解除应用绑定"); await loadAll(); }
+}
+
 /* ============ 建表（在登录账号自己的空间里） ============ */
 async function doSetup(force){
   const fs = state.feishu || {};
-  if (!fs.logged_in){ toast("请先登录飞书，登录后才能创建表格"); return; }
+  const steps = state.steps || {};
+  if (!steps.app){ toast("请先完成第 1 步：绑定你自己的飞书应用"); return; }
+  if (!fs.logged_in){ toast("请先完成第 2 步：登录飞书"); return; }
   if (force && fs.provisioned &&
       !confirm("当前已有表格。\n\n确定再新建一张吗？新表会和现在这张并存，之后抓取的笔记将写入新表。")) return;
 
-  const btn = $("setupBtn"), b2 = $("setupBarBtn");
-  btn.disabled = b2.disabled = true;
-  btn.textContent = "正在创建…";
-  b2.textContent = "正在创建…";
+  const btn = $("setupBtn"), b2 = $("stepBaseBtn");
+  btn.disabled = true; b2.disabled = true;
+  btn.textContent = "正在创建…"; b2.textContent = "创建中…";
   toast("正在你的飞书空间里建表…");
 
   try{
@@ -501,8 +704,8 @@ async function doSetup(force){
   }catch(e){
     toast("创建失败：" + e.message);
   }
-  btn.disabled = b2.disabled = false;
-  b2.textContent = "立即创建";
+  $("setupBtn").disabled = false;
+  $("stepBaseBtn").disabled = false;
   renderStatus();
 }
 
@@ -622,8 +825,27 @@ document.addEventListener("DOMContentLoaded", () => {
 
   $("loginBtn").addEventListener("click", startLogin);
   $("logoutHintBtn").addEventListener("click", startLogin);
+
+  // 首次使用三步引导
+  $("stepAppBtn").addEventListener("click", doAppInit);
+  $("stepLoginBtn").addEventListener("click", () => {
+    if (!state.steps.app){ toast("请先完成第 1 步：绑定飞书应用"); return; }
+    startLogin();
+  });
+  $("stepBaseBtn").addEventListener("click", () => doSetup(!!(state.feishu || {}).provisioned));
+
+  // 飞书应用
+  $("appInitBtn").addEventListener("click", doAppInit);
+  $("appResetBtn").addEventListener("click", doAppReset);
+  $("appBindBtn").addEventListener("click", doAppBind);
+  $("openAppUrl").addEventListener("click", () => {
+    const u = $("appUrl").textContent;
+    if (u && u.startsWith("http")) window.open(u, "_blank");
+  });
+  $("checkAppBtn").addEventListener("click", checkAppNow);
+  $("cancelApp").addEventListener("click", () => { stopAppPoll(); $("appModal").classList.remove("on"); });
+
   $("setupBtn").addEventListener("click", () => doSetup(true));
-  $("setupBarBtn").addEventListener("click", () => doSetup(false));
   $("resetTblBtn").addEventListener("click", doResetTbl);
   $("openLoginUrl").addEventListener("click", () => {
     const u = $("loginUrl").textContent;

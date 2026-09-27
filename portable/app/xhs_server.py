@@ -11,9 +11,13 @@
     POST /api/sync             把未同步的记录批量推送到飞书
     POST /api/delete           删除一条本地记录
     POST /api/settings         保存 Cookie / 表格配置
+    POST /api/app/init/start   发起飞书官方"创建/绑定我的应用"向导
+    POST /api/app/init/check   轮询应用是否已配置成功
+    POST /api/app/bind         手动填入自己的 App ID / App Secret
+    POST /api/app/reset        解除应用绑定（换用另一个应用）
     POST /api/setup            在登录账号自己的空间里新建飞书表格
     POST /api/reset            清空本地表格坐标（换账号时用）
-    POST /api/login/start      发起飞书扫码登录
+    POST /api/login/start      发起飞书登录
     POST /api/login/finish     完成飞书登录
     GET  /api/img?u=           图片代理（绕过小红书防盗链）
     GET  /api/export?format=   导出 csv / json
@@ -136,11 +140,18 @@ class Handler(BaseHTTPRequestHandler):
             notes = store.load_notes()
             st = feishu.load_settings()
             ck = xhs_core.load_cookie()
+            app = feishu.app_config()
             fs = feishu.auth_status()
             provisioned = bool(st.get("base_token") and st.get("table_id"))
             logged_in = fs.get("logged_in", False)
+            app_ready = bool(app.get("configured"))
+            # 三步：① 绑定自己的飞书应用 ② 登录 ③ 建表
+            steps = {"app": app_ready, "login": logged_in, "base": provisioned}
             return self._json({
                 "ok": True,
+                "app": app,
+                "steps": steps,
+                "ready": all(steps.values()),
                 "feishu": {
                     "logged_in": logged_in,
                     "user": fs.get("user", ""),
@@ -148,9 +159,8 @@ class Handler(BaseHTTPRequestHandler):
                     "base_token": st.get("base_token", ""),
                     "table_id": st.get("table_id", ""),
                     "error": fs.get("error", ""),
-                    # 已登录但还没建表 —— 前端提示用户点「创建我的表格」
                     "provisioned": provisioned,
-                    "needs_setup": bool(logged_in) and not provisioned,
+                    "needs_setup": bool(app_ready and logged_in and not provisioned),
                 },
                 "cookie": {"configured": bool(ck), "length": len(ck)},
                 "stats": stats_of(notes),
@@ -210,6 +220,16 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": ok})
         if p == "/api/settings":
             return self._settings(body)
+        if p == "/api/app/init/start":
+            return self._app_init_start()
+        if p == "/api/app/init/check":
+            return self._json({"ok": True, "app": feishu.app_init_status()})
+        if p == "/api/app/bind":
+            return self._app_bind(body)
+        if p == "/api/app/reset":
+            # 换应用后原来的表格坐标不再适用，一并清空
+            feishu.reset_settings()
+            return self._json({"ok": True, "app": feishu.app_reset()})
         if p == "/api/setup":
             return self._setup(body)
         if p == "/api/reset":
@@ -242,8 +262,11 @@ class Handler(BaseHTTPRequestHandler):
 
         # 再尝试同步飞书
         sync = {"synced": False, "message": ""}
+        app_ok = feishu.app_config().get("configured")
         fs = feishu.auth_status()
-        if not fs.get("logged_in"):
+        if not app_ok:
+            sync["message"] = "尚未绑定飞书应用，已存本地（完成首次设置后可同步）"
+        elif not fs.get("logged_in"):
             sync["message"] = "飞书未登录，已存本地（登录后可一键同步）"
         elif not feishu.is_provisioned():
             sync["message"] = "尚未创建飞书表格，已存本地（在设置里点「创建我的表格」）"
@@ -261,6 +284,8 @@ class Handler(BaseHTTPRequestHandler):
                            "sync": sync, "stats": stats_of(notes)})
 
     def _sync(self):
+        if not feishu.app_config().get("configured"):
+            return self._json({"ok": False, "error": "尚未绑定飞书应用，请先在「首次使用」里完成第 1 步"})
         fs = feishu.auth_status()
         if not fs.get("logged_in"):
             return self._json({"ok": False, "error": "飞书未登录，请先登录"})
@@ -298,8 +323,26 @@ class Handler(BaseHTTPRequestHandler):
         ck = xhs_core.load_cookie()
         return self._json({"ok": True, "cookie": {"configured": bool(ck), "length": len(ck)}})
 
+    def _app_init_start(self):
+        """走飞书官方向导，为使用者创建/绑定属于他自己的飞书应用"""
+        try:
+            return self._json({"ok": True, **feishu.app_init_start()})
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)})
+
+    def _app_bind(self, body):
+        """使用者手动填入自己的 App ID / App Secret"""
+        try:
+            cfg = feishu.app_bind(body.get("app_id"), body.get("app_secret"),
+                                  body.get("brand") or "feishu")
+            return self._json({"ok": True, "app": cfg})
+        except Exception as e:
+            return self._json({"ok": False, "error": str(e)[:300]})
+
     def _setup(self, body):
-        """在当前登录账号自己的飞书空间里新建一张表格"""
+        """在登录账号自己的飞书空间里新建一张表格"""
+        if not feishu.app_config().get("configured"):
+            return self._json({"ok": False, "error": "还没有绑定飞书应用，请先完成第 1 步"})
         fs = feishu.auth_status()
         if not fs.get("logged_in"):
             return self._json({"ok": False, "error": "请先登录飞书，登录后才能创建表格"})
@@ -338,7 +381,9 @@ def main():
     ck = xhs_core.load_cookie()
     st = feishu.load_settings()
     print(f"  Cookie  ：{'已配置' if ck else '未配置（请在页面设置中填写）'}")
-    print(f"  飞书表格：{st['base_url'] if st.get('base_url') else '未创建（登录后在设置里点「创建我的表格」）'}")
+    app = feishu.app_config()
+    print(f"  飞书应用：{app.get('app_id') if app.get('configured') else '未绑定（首次使用请在工作台完成第 1 步）'}")
+    print(f"  飞书表格：{st['base_url'] if st.get('base_url') else '未创建（登录后点「创建我的表格」）'}")
     print("  关闭窗口或按 Ctrl+C 停止服务")
     print("=" * 52)
 
