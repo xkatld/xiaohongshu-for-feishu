@@ -255,7 +255,8 @@
 
 <script>
 /* ============ 配置 ============ */
-const BASE_URL = "https://my.feishu.cn/base/S6IGbRWTeaualFsWEkBc81zBn0g";
+/* 飞书表格地址：填你自己的。本项目开源，作者的表格地址不写进代码。 */
+const BASE_URL = "";
 
 /* ============ 状态 ============ */
 const state = { notes: [], filter: "all", busy: false };
@@ -436,7 +437,9 @@ function refreshAll(){
 
 /* ============ 事件绑定 ============ */
 document.addEventListener("DOMContentLoaded", () => {
-  $("tblLink").innerHTML = `<a href="${BASE_URL}" target="_blank" rel="noopener" style="color:var(--red);text-decoration:none">打开飞书表格 ↗</a>`;
+  $("tblLink").innerHTML = BASE_URL
+    ? `<a href="${BASE_URL}" target="_blank" rel="noopener" style="color:var(--red);text-decoration:none">打开飞书表格 ↗</a>`
+    : `<span style="color:var(--muted)">未配置表格地址</span>`;
   $("fetchBtn").addEventListener("click", submitNote);
   $("refreshBtn").addEventListener("click", () => { setStatus("loading", "刷新中"); loadNotes(); });
   $("urlInput").addEventListener("keydown", e => {

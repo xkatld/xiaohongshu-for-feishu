@@ -20,10 +20,36 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from xhs_core import fetch_note, get_cookie_from_env, XHSError  # noqa: E402
 
 # ---------------------------------------------------------------- 配置
-BASE_TOKEN = "S6IGbRWTeaualFsWEkBc81zBn0g"
-TABLE_ID = "tbl1c8KxkRxC2hCk"
-BASE_URL = "https://my.feishu.cn/base/S6IGbRWTeaualFsWEkBc81zBn0g"
+# 表格坐标**不在代码里硬编码**：本项目开源，表格地址属于个人隐私。
+# 优先级：环境变量 > 便携版本机配置 portable/config/settings.json
 LARK_CLI = os.environ.get("LARK_CLI", "lark-cli")
+
+
+def load_base_coords():
+    """返回 (base_token, table_id, base_url)；没配置就给出明确的操作指引"""
+    base_token = os.environ.get("XHS_BASE_TOKEN", "").strip()
+    table_id = os.environ.get("XHS_TABLE_ID", "").strip()
+    base_url = os.environ.get("XHS_BASE_URL", "").strip()
+
+    if not (base_token and table_id):
+        cfg = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "portable", "config", "settings.json")
+        try:
+            with open(cfg, encoding="utf-8") as f:
+                s = json.load(f) or {}
+            base_token = base_token or str(s.get("base_token") or "").strip()
+            table_id = table_id or str(s.get("table_id") or "").strip()
+            base_url = base_url or str(s.get("base_url") or "").strip()
+        except (OSError, ValueError):
+            pass
+
+    if not (base_token and table_id):
+        raise SystemExit(
+            "未配置飞书表格坐标。\n"
+            "  方式一：打开便携版工作台，登录飞书后点「创建我的飞书表格」；\n"
+            "  方式二：设置环境变量 XHS_BASE_TOKEN / XHS_TABLE_ID（可选 XHS_BASE_URL）。")
+    return base_token, table_id, base_url
 
 DEMO = ("54 【这棵树到底结了多少苹果？ - 小九探秘 | 小红书 - 你的生活兴趣社区】 😆 LwO7RdlpBW92tVD 😆 "
         "https://www.xiaohongshu.com/discovery/item/6a9d7ef9000000002b013bdb?source=webshare&xhsshare=pc_web"
@@ -82,11 +108,12 @@ def push_to_feishu(records):
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False)
 
+    base_token, table_id, _ = load_base_coords()
     try:
         res = _run_lark([
             "base", "+record-batch-create",
-            "--base-token", BASE_TOKEN,
-            "--table-id", TABLE_ID,
+            "--base-token", base_token,
+            "--table-id", table_id,
             "--json", "@" + path,
             "--as", "user",
         ])
