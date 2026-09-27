@@ -113,7 +113,7 @@
   .note{display:flex;gap:14px;padding:15px;border:1px solid var(--line);border-radius:14px;margin-bottom:12px;background:#fff}
   .thumb{width:88px;height:88px;border-radius:11px;flex:none;background:var(--bg);object-fit:cover;display:block}
   .note-b{flex:1;min-width:0;display:flex;flex-direction:column}
-  .note-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .note-top{display:flex;align-items:center;gap:8px;margin-bottom:6px;flex-wrap:wrap}
   .badge{font-size:11px;padding:2px 8px;border-radius:6px;flex:none;font-weight:500}
   .badge.video{background:#FFF0E6;color:#C2570A}
   .badge.photo{background:#EAF2FF;color:#1D5CC4}
@@ -124,7 +124,7 @@
   .note-t:hover{color:var(--red)}
   .note-meta{font-size:12px;color:var(--muted);margin-top:5px}
   .note-tags{font-size:12px;color:#4E5969;margin-top:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-  .note-foot{display:flex;gap:16px;margin-top:auto;padding-top:9px;font-size:12.5px;color:var(--sub);align-items:center}
+  .note-foot{display:flex;gap:16px;margin-top:auto;padding-top:9px;font-size:12.5px;color:var(--sub);align-items:center;flex-wrap:wrap}
   .note-foot span{display:flex;align-items:center;gap:4px}
   .note-foot svg{width:13px;height:13px;fill:currentColor}
   .note-foot .lk{color:var(--red)}
@@ -135,15 +135,30 @@
   .skeleton{height:110px;border-radius:14px;background:linear-gradient(90deg,#F2F3F5 25%,#E9EBEE 50%,#F2F3F5 75%);background-size:200% 100%;animation:sk 1.3s infinite;margin-bottom:12px}
   @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
 
-  /* 抽屉 */
-  .mask{position:fixed;inset:0;background:rgba(31,35,41,.4);opacity:0;pointer-events:none;transition:opacity .2s;z-index:40}
-  .mask.on{opacity:1;pointer-events:auto}
-  .drawer{position:fixed;top:0;right:0;bottom:0;width:min(430px,100%);background:#fff;z-index:50;transform:translateX(105%);transition:transform .25s;overflow-y:auto;padding:20px;padding-bottom:calc(28px + env(safe-area-inset-bottom))}
-  .drawer.on{transform:none}
-  .drawer-hd{display:flex;align-items:center;margin-bottom:18px}
-  .drawer-hd h3{font-size:16px;font-weight:600;flex:1}
-  .drawer-hd button{width:34px;height:34px;border-radius:9px;border:1px solid var(--line);background:#fff;cursor:pointer;display:flex;align-items:center;justify-content:center}
-  .drawer-hd svg{width:15px;height:15px;fill:var(--sub)}
+  /* Tab 导航 + 分页（主区按功能分页，避免几十上百条记录把页面拉爆） */
+  .tabs{display:flex;gap:6px;margin-top:16px;background:var(--card);border-radius:14px;padding:5px;box-shadow:var(--shadow);overflow-x:auto;position:sticky;top:62px;z-index:20}
+  .tab{flex:1;min-width:78px;min-height:40px;border:none;border-radius:11px;background:transparent;font-size:14px;font-weight:500;color:var(--sub);cursor:pointer;font-family:inherit;white-space:nowrap;padding:0 12px}
+  .tab.on{background:var(--red-soft);color:var(--red)}
+  .panel{display:none}
+  .panel.on{display:block}
+  .tools{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin-bottom:14px}
+  .search{flex:1;min-width:170px;border:1px solid var(--line);border-radius:10px;padding:9px 12px;font-size:13.5px;font-family:inherit;outline:none;background:#FCFCFD;color:var(--text)}
+  .search:focus{border-color:var(--red);background:#fff}
+  .tools select{border:1px solid var(--line);border-radius:10px;padding:9px 8px;font-size:13px;font-family:inherit;background:#FCFCFD;color:var(--sub);outline:none;cursor:pointer}
+  .pager{display:flex;align-items:center;justify-content:center;gap:6px;flex-wrap:wrap;margin-top:18px}
+  .pg{min-width:34px;height:34px;padding:0 10px;border-radius:9px;border:1px solid var(--line);background:#fff;font-size:13px;color:var(--sub);cursor:pointer;font-family:inherit;font-variant-numeric:tabular-nums}
+  .pg:hover:not(:disabled){border-color:#FFD3DA;color:var(--red)}
+  .pg.on{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+  .pg:disabled{opacity:.4;cursor:not-allowed}
+  .pg-gap{color:var(--muted);padding:0 2px;font-size:13px}
+  .prog{margin-top:12px}
+  .prog-bar{height:6px;background:var(--bg);border-radius:6px;overflow:hidden}
+  .prog-bar i{display:block;height:100%;width:0;background:var(--red);border-radius:6px;transition:width .25s}
+  .prog-t{font-size:12px;color:var(--muted);margin-top:7px;font-variant-numeric:tabular-nums}
+
+  /* 设置面板（原抽屉内容，改为 Tab 内两列） */
+  .set-card{padding:22px 22px 6px}
+  .set-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 30px}
   .set-block{margin-bottom:22px}
   .set-block h4{font-size:13.5px;font-weight:600;margin-bottom:8px;display:flex;align-items:center;gap:6px}
   .set-block p{font-size:12px;color:var(--muted);margin-bottom:9px;line-height:1.6}
@@ -182,9 +197,28 @@
     .head-t p{display:none}
     .filters{margin-left:0;width:100%}
     .hint{margin-left:0;width:100%}
+    .tabs{margin-top:12px;top:62px}
+    .tab{min-width:62px;padding:0 8px;font-size:13.5px}
+    .set-grid{grid-template-columns:1fr;gap:0}
+    .set-card{padding:16px 16px 2px}
+    .pg{min-width:32px;height:32px;padding:0 8px}
     .note{gap:11px;padding:12px}
     .thumb{width:74px;height:74px;border-radius:9px}
     .btn-p{width:100%}
+  }
+
+  /* 小屏（iPhone SE / 老安卓）：再收窄一档，避免挤出横向滚动条 */
+  @media (max-width:400px){
+    .card{padding:14px;border-radius:13px}
+    .note{padding:11px;gap:10px}
+    .thumb{width:64px;height:64px;border-radius:8px}
+    .note-foot{gap:12px}
+    .metrics{gap:8px}
+    .metric{padding:12px}
+    .metric .v{font-size:19px}
+    .set-card{padding:14px 14px 2px}
+    .tab{min-width:56px;padding:0 6px;font-size:13px}
+    .pg{min-width:30px;height:30px;padding:0 7px;font-size:12.5px}
   }
 </style>
 </head>
@@ -208,6 +242,17 @@
     <span id="pendingTxt"></span>
     <button id="syncBtn">一键同步到飞书</button>
   </div>
+
+  <!-- Tab 导航：抓取 / 概览 / 笔记 / 设置 -->
+  <nav class="tabs" role="tablist">
+    <button class="tab on" data-tab="fetch">抓取</button>
+    <button class="tab" data-tab="overview">概览</button>
+    <button class="tab" data-tab="notes">笔记</button>
+    <button class="tab" data-tab="settings">设置</button>
+  </nav>
+
+  <!-- ===== Tab 1：抓取 ===== -->
+  <section class="panel on" id="panel-fetch">
 
   <!-- 首次使用引导：绑定自己的应用 → 登录 → 建表 -->
   <section class="card guide" id="guideCard">
@@ -269,10 +314,17 @@
       <button class="btn btn-g" id="refreshBtn">刷新</button>
     </div>
     <div class="tip">支持 note_id、完整链接、xhslink 短链或整段分享文案。数据先存本地，飞书已登录时会自动同步。</div>
+    <div class="prog" id="prog" hidden>
+      <div class="prog-bar"><i id="progFill"></i></div>
+      <div class="prog-t" id="progTxt"></div>
+    </div>
     <div class="msg" id="msg"></div>
   </section>
 
-  <!-- 概览 -->
+  </section><!-- /panel-fetch -->
+
+  <!-- ===== Tab 2：概览 ===== -->
+  <section class="panel" id="panel-overview">
   <section class="card">
     <div class="card-hd">
       <svg viewBox="0 0 24 24"><path d="M3 13h5v8H3Zm6.5-9h5v17h-5ZM16 7h5v14h-5Z"/></svg>
@@ -291,11 +343,24 @@
     </div>
   </section>
 
-  <!-- 列表 -->
+  </section><!-- /panel-overview -->
+
+  <!-- ===== Tab 3：笔记（分页） ===== -->
+  <section class="panel" id="panel-notes">
   <section class="card">
     <div class="card-hd">
       <svg viewBox="0 0 24 24"><path d="M4 4h16v2H4Zm0 5h16v2H4Zm0 5h11v2H4Zm0 5h11v2H4Z"/></svg>
       <h2>已收录笔记</h2>
+      <span class="hint" id="listHint"></span>
+    </div>
+    <div class="tools">
+      <input class="search" id="searchInput" placeholder="搜索标题 / 作者 / 标签">
+      <select id="pageSizeSel" title="每页显示条数">
+        <option value="12">12 条/页</option>
+        <option value="20">20 条/页</option>
+        <option value="50">50 条/页</option>
+        <option value="100">100 条/页</option>
+      </select>
       <div class="filters">
         <button class="chip on" data-f="all">全部</button>
         <button class="chip" data-f="图文">图文</button>
@@ -304,17 +369,20 @@
       </div>
     </div>
     <div id="noteList"><div class="skeleton"></div><div class="skeleton"></div></div>
+    <div class="pager" id="pager"></div>
   </section>
 
-</div>
+  </section><!-- /panel-notes -->
 
-<!-- 设置抽屉 -->
-<div class="mask" id="mask"></div>
-<aside class="drawer" id="drawer">
-  <div class="drawer-hd">
-    <h3>设置</h3>
-    <button id="closeDrawer"><svg viewBox="0 0 24 24"><path d="M19 6.4 17.6 5 12 10.6 6.4 5 5 6.4 10.6 12 5 17.6 6.4 19 12 13.4 17.6 19 19 17.6 13.4 12Z"/></svg></button>
-  </div>
+  <!-- ===== Tab 4：设置 ===== -->
+  <section class="panel" id="panel-settings">
+  <section class="card set-card">
+    <div class="card-hd">
+      <svg viewBox="0 0 24 24"><path d="M19.4 13a7.8 7.8 0 0 0 0-2l2.1-1.6-2-3.4-2.5 1a7.6 7.6 0 0 0-1.7-1L15 3H9l-.3 2.8c-.6.3-1.2.6-1.7 1L4.5 6l-2 3.4L4.6 11a7.8 7.8 0 0 0 0 2l-2.1 1.6 2 3.4 2.5-1c.5.4 1.1.7 1.7 1L9 21h6l.3-2.8c.6-.3 1.2-.6 1.7-1l2.5 1 2-3.4ZM12 15.5A3.5 3.5 0 1 1 15.5 12 3.5 3.5 0 0 1 12 15.5Z"/></svg>
+      <h2>设置</h2>
+      <span class="hint">全部配置只保存在本机</span>
+    </div>
+    <div class="set-grid">
 
   <div class="set-block">
     <h4>飞书应用</h4>
@@ -375,7 +443,12 @@
     <input id="tableIdInput" placeholder="table_id" style="margin-top:8px">
     <button class="btn btn-o" id="saveTblBtn">保存表格配置</button>
   </div>
-</aside>
+    </div><!-- /set-grid -->
+  </section>
+
+  </section><!-- /panel-settings -->
+
+</div><!-- /wrap -->
 
 <!-- 登录弹窗 -->
 <div class="modal" id="loginModal">
@@ -408,8 +481,21 @@
 
 <script>
 /* ============ 状态 ============ */
-const state = { notes: [], stats: {}, feishu: {}, cookie: {}, app: {}, steps: {}, filter: "all", busy: false, deviceCode: "", appPoll: null };
+const state = {
+  notes: [], stats: {}, feishu: {}, cookie: {}, app: {}, steps: {},
+  filter: "all", keyword: "", page: 1, pageSize: 20, tab: "fetch",
+  busy: false, deviceCode: "", appPoll: null
+};
 const $ = id => document.getElementById(id);
+
+/* 记住上次停留的 Tab 与每页条数（只存本机浏览器） */
+const UI_KEY = "xhs_ui_v1";
+function loadUi(){
+  try{ return JSON.parse(localStorage.getItem(UI_KEY) || "{}") || {}; }catch(e){ return {}; }
+}
+function saveUi(){
+  try{ localStorage.setItem(UI_KEY, JSON.stringify({ tab: state.tab, pageSize: state.pageSize })); }catch(e){}
+}
 
 /* ============ 工具 ============ */
 const toInt = v => { const n = parseInt(String(v ?? "0").replace(/[^\d]/g, ""), 10); return isNaN(n) ? 0 : n; };
@@ -427,6 +513,25 @@ function hideMsg(){ $("msg").className = "msg"; }
 async function api(path, opt){
   const r = await fetch(path, opt);
   return await r.json();
+}
+
+/* ============ Tab 切换 ============ */
+const TABS = ["fetch", "overview", "notes", "settings"];
+function switchTab(name, scroll){
+  if (TABS.indexOf(name) < 0) name = "fetch";
+  state.tab = name;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("on", b.dataset.tab === name));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("on", p.id === "panel-" + name));
+  saveUi();
+  if (scroll !== false) window.scrollTo({ top: 0, behavior: "auto" });
+}
+/* 打开「设置」Tab，可选聚焦某个输入框（原来是个抽屉，现在是一个 Tab） */
+function openSettings(focusId){
+  switchTab("settings");
+  if (focusId){
+    const el = $(focusId);
+    if (el) setTimeout(() => { el.focus(); el.scrollIntoView({ block: "center", behavior: "smooth" }); }, 60);
+  }
 }
 
 /* ============ 数据层 ============ */
@@ -579,30 +684,30 @@ const ICON = {
   share: '<svg viewBox="0 0 24 24"><path d="M18 16a3 3 0 0 0-2.2 1L9.9 13.6a3 3 0 0 0 0-3.2l5.9-3.4A3 3 0 1 0 15 5l-5.9 3.4a3 3 0 1 0 0 7.2L15 19a3 3 0 1 0 3-3Z"/></svg>'
 };
 
-function renderList(){
-  const box = $("noteList");
+/* 筛选 + 搜索后的结果集 */
+function filteredNotes(){
   let ns = state.notes;
   if (state.filter === "pending") ns = ns.filter(n => !n.synced);
   else if (state.filter !== "all") ns = ns.filter(n => (n.type || "") === state.filter);
 
-  if (!ns.length){
-    box.innerHTML = `<div class="empty">
-      <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4Zm2 2v12h12V6Zm2 4h8v2H8Zm0 4h5v2H8Z"/></svg>
-      <div>${state.notes.length ? "该分类下暂无笔记" : "还没有收录笔记，粘贴链接试试"}</div>
-    </div>`;
-    return;
+  const kw = (state.keyword || "").trim().toLowerCase();
+  if (kw){
+    ns = ns.filter(n => ((n.title || "") + " " + (n.author || "") + " " + (n.tags_text || ""))
+      .toLowerCase().includes(kw));
   }
+  return ns;
+}
 
-  box.innerHTML = ns.map(n => {
-    const badge = n.type === "视频" ? "video" : "photo";
-    const sync = n.synced
-      ? `<span class="badge sync">已同步</span>`
-      : `<span class="badge nosync">待同步</span>`;
-    const img = (n.images && n.images[0]) || "";
-    const thumb = img
-      ? `<img class="thumb" src="/api/img?u=${encodeURIComponent(img)}" alt="" loading="lazy">`
-      : `<div class="thumb"></div>`;
-    return `<div class="note">
+function noteHtml(n){
+  const badge = n.type === "视频" ? "video" : "photo";
+  const sync = n.synced
+    ? `<span class="badge sync">已同步</span>`
+    : `<span class="badge nosync">待同步</span>`;
+  const img = (n.images && n.images[0]) || "";
+  const thumb = img
+    ? `<img class="thumb" src="/api/img?u=${encodeURIComponent(img)}" alt="" loading="lazy">`
+    : `<div class="thumb"></div>`;
+  return `<div class="note">
       ${thumb}
       <div class="note-b">
         <div class="note-top">
@@ -622,7 +727,63 @@ function renderList(){
         </div>
       </div>
     </div>`;
-  }).join("");
+}
+
+/* 列表渲染：只画当前页，上百条也不会把页面撑爆 */
+function renderList(){
+  const box = $("noteList");
+  const all = filteredNotes();
+  const size = state.pageSize || 20;
+  const pages = Math.max(1, Math.ceil(all.length / size));
+
+  if (state.page > pages) state.page = pages;
+  if (state.page < 1) state.page = 1;
+
+  $("listHint").textContent = all.length
+    ? `共 ${all.length} 条${state.keyword ? "（已筛选）" : ""}`
+    : "";
+
+  if (!all.length){
+    box.innerHTML = `<div class="empty">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4Zm2 2v12h12V6Zm2 4h8v2H8Zm0 4h5v2H8Z"/></svg>
+      <div>${state.notes.length
+        ? (state.keyword ? "没有匹配的笔记，换个关键词试试" : "该分类下暂无笔记")
+        : "还没有收录笔记，粘贴链接试试"}</div>
+    </div>`;
+    $("pager").innerHTML = "";
+    return;
+  }
+
+  const start = (state.page - 1) * size;
+  box.innerHTML = all.slice(start, start + size).map(noteHtml).join("");
+  renderPager(all.length, pages);
+}
+
+/* 页码序列：首页 + 末页 + 当前附近，中间折叠成省略号 */
+function pageNumbers(cur, pages){
+  const keep = new Set([1, pages, cur - 1, cur, cur + 1]);
+  const arr = [...keep].filter(v => v >= 1 && v <= pages).sort((a, b) => a - b);
+  const out = [];
+  let prev = 0;
+  for (const v of arr){
+    if (prev && v - prev > 1) out.push("...");
+    out.push(v);
+    prev = v;
+  }
+  return out;
+}
+
+function renderPager(total, pages){
+  const box = $("pager");
+  if (pages <= 1){ box.innerHTML = ""; return; }
+  const cur = state.page;
+  const nums = pageNumbers(cur, pages).map(v => v === "..."
+    ? `<span class="pg-gap">…</span>`
+    : `<button class="pg ${v === cur ? "on" : ""}" data-pg="${v}">${v}</button>`).join("");
+  box.innerHTML =
+    `<button class="pg" data-pg="${cur - 1}" ${cur <= 1 ? "disabled" : ""}>上一页</button>` +
+    nums +
+    `<button class="pg" data-pg="${cur + 1}" ${cur >= pages ? "disabled" : ""}>下一页</button>`;
 }
 
 /* ============ 统一刷新入口 ============ */
@@ -763,10 +924,20 @@ async function submitFetch(){
   $("fetchBtn").disabled = true;
   hideMsg();
 
+  // 批量抓取时给个进度，免得几十上百条时不知道跑到哪了
+  const prog = $("prog"), fill = $("progFill"), ptxt = $("progTxt");
+  const showProg = items.length > 1;
+  if (showProg){
+    prog.hidden = false;
+    fill.style.width = "0%";
+    ptxt.textContent = `0 / ${items.length}`;
+  }
+
   let ok = 0, fail = 0, lastErr = "", syncedCount = 0;
   for (let i = 0; i < items.length; i++){
     const label = items.length > 1 ? `（${i + 1}/${items.length}）` : "";
     $("fetchTxt").textContent = "抓取中" + label;
+    if (showProg) ptxt.textContent = `${i} / ${items.length} · 成功 ${ok} · 失败 ${fail}`;
     try{
       const d = await api("/api/fetch", {
         method: "POST",
@@ -776,7 +947,12 @@ async function submitFetch(){
       if (d.ok){ ok++; if (d.sync && d.sync.synced) syncedCount++; }
       else { fail++; lastErr = d.error || "未知错误"; }
     }catch(e){ fail++; lastErr = e.message; }
+    if (showProg) fill.style.width = ((i + 1) / items.length * 100).toFixed(1) + "%";
     if (items.length > 1) await new Promise(r => setTimeout(r, 1200));
+  }
+  if (showProg){
+    ptxt.textContent = `完成：成功 ${ok} 条 · 失败 ${fail} 条`;
+    setTimeout(() => { prog.hidden = true; fill.style.width = "0%"; }, 3000);
   }
 
   state.busy = false;
@@ -831,8 +1007,8 @@ async function finishLogin(){
       $("loginModal").classList.remove("on");
       await loadAll();
       if ((state.feishu || {}).needs_setup){
-        // 登录后还没建表：自动打开设置抽屉引导创建
-        $("drawer").classList.add("on"); $("mask").classList.add("on");
+        // 登录后还没建表：自动跳到「设置」引导创建
+        openSettings();
         toast("登录成功，请点「创建我的飞书表格」");
       }else{
         toast("飞书登录成功");
@@ -851,11 +1027,14 @@ document.addEventListener("DOMContentLoaded", () => {
   $("syncBtn").addEventListener("click", doSync);
   $("urlInput").addEventListener("keydown", e => { if ((e.ctrlKey || e.metaKey) && e.key === "Enter") submitFetch(); });
 
-  $("fsPill").addEventListener("click", () => { $("drawer").classList.add("on"); $("mask").classList.add("on"); });
-  $("setBtn").addEventListener("click", () => { $("drawer").classList.add("on"); $("mask").classList.add("on"); });
-  const closeDrawer = () => { $("drawer").classList.remove("on"); $("mask").classList.remove("on"); };
-  $("closeDrawer").addEventListener("click", closeDrawer);
-  $("mask").addEventListener("click", closeDrawer);
+  // Tab 导航
+  document.querySelectorAll(".tab").forEach(b => {
+    b.addEventListener("click", () => switchTab(b.dataset.tab));
+  });
+
+  // 顶栏两个入口统一跳到「设置」Tab
+  $("fsPill").addEventListener("click", () => openSettings());
+  $("setBtn").addEventListener("click", () => openSettings());
 
   $("loginBtn").addEventListener("click", startLogin);
   $("logoutHintBtn").addEventListener("click", startLogin);
@@ -867,11 +1046,7 @@ document.addEventListener("DOMContentLoaded", () => {
     startLogin();
   });
   $("stepBaseBtn").addEventListener("click", () => doSetup(!!(state.feishu || {}).provisioned));
-  $("stepCookieBtn").addEventListener("click", () => {
-    $("drawer").classList.add("on"); $("mask").classList.add("on");
-    const el = $("ckInput");
-    if (el) el.focus();
-  });
+  $("stepCookieBtn").addEventListener("click", () => openSettings("ckInput"));
 
   // 飞书应用
   $("appInitBtn").addEventListener("click", doAppInit);
@@ -928,13 +1103,45 @@ document.addEventListener("DOMContentLoaded", () => {
   $("expCsvBtn").addEventListener("click", () => window.open("/api/export?format=csv", "_blank"));
   $("expJsonBtn").addEventListener("click", () => window.open("/api/export?format=json", "_blank"));
 
+  // 分类筛选：换分类回到第 1 页
   document.querySelectorAll(".chip").forEach(c => {
     c.addEventListener("click", () => {
       document.querySelectorAll(".chip").forEach(x => x.classList.remove("on"));
       c.classList.add("on");
       state.filter = c.dataset.f;
+      state.page = 1;
       renderList();
     });
+  });
+
+  // 搜索（防抖）：标题 / 作者 / 标签
+  let searchTimer = null;
+  $("searchInput").addEventListener("input", e => {
+    clearTimeout(searchTimer);
+    searchTimer = setTimeout(() => {
+      state.keyword = e.target.value;
+      state.page = 1;
+      renderList();
+    }, 180);
+  });
+
+  // 每页条数
+  $("pageSizeSel").addEventListener("change", e => {
+    state.pageSize = parseInt(e.target.value, 10) || 20;
+    state.page = 1;
+    saveUi();
+    renderList();
+  });
+
+  // 翻页
+  $("pager").addEventListener("click", e => {
+    const b = e.target.closest("[data-pg]");
+    if (!b || b.disabled) return;
+    const p = parseInt(b.dataset.pg, 10) || 1;
+    if (p === state.page) return;
+    state.page = p;
+    renderList();
+    $("panel-notes").scrollIntoView({ block: "start", behavior: "smooth" });
   });
 
   $("noteList").addEventListener("click", async e => {
@@ -948,6 +1155,15 @@ document.addEventListener("DOMContentLoaded", () => {
     toast("已删除");
     await loadAll();
   });
+
+  // 恢复上次停留的 Tab 与每页条数；URL 上带 ?tab=notes 时优先用它
+  const ui = loadUi();
+  if (ui.tab) state.tab = ui.tab;
+  if (ui.pageSize) state.pageSize = ui.pageSize;
+  const m = location.search.match(/[?&]tab=([a-z]+)/);
+  if (m && TABS.indexOf(m[1]) >= 0) state.tab = m[1];
+  $("pageSizeSel").value = String(state.pageSize);
+  switchTab(state.tab, false);
 
   loadAll();
 });
