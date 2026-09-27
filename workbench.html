@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<!-- 本工作台用于「小红书笔记统计工作流」的可视化录入与统计展示；
+     数据存储于飞书多维表格，由本地 xhs_server.py 提供接口。 -->
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>小红书笔记统计台</title>
+<style>
+  :root{
+    --red:#FF2442; --red-soft:#FFF1F3; --bg:#F5F6F8; --card:#FFFFFF;
+    --text:#1F2329; --sub:#646A73; --muted:#8F959E; --line:#EBEDF0;
+    --blue:#3B82F6; --orange:#FF8A3D; --green:#12B76A;
+    --shadow:0 1px 3px rgba(31,35,41,.06),0 6px 20px rgba(31,35,41,.05);
+    --radius:16px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg); color:var(--text); line-height:1.55;
+    padding-bottom:calc(32px + env(safe-area-inset-bottom));
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:0 16px}
+
+  /* ---------- Header ---------- */
+  header{
+    background:var(--card); border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:20;
+  }
+  .head-in{display:flex;align-items:center;gap:12px;height:62px}
+  .logo{
+    width:34px;height:34px;border-radius:10px;background:var(--red);
+    display:flex;align-items:center;justify-content:center;flex:none;
+  }
+  .logo svg{width:19px;height:19px;fill:#fff}
+  .head-t{flex:1;min-width:0}
+  .head-t h1{font-size:16px;font-weight:600;letter-spacing:.2px}
+  .head-t p{font-size:12px;color:var(--muted);margin-top:1px}
+  .sync{
+    display:flex;align-items:center;gap:6px;font-size:12px;color:var(--sub);
+    background:var(--bg);padding:6px 11px;border-radius:20px;flex:none;
+  }
+  .dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex:none}
+  .dot.loading{background:var(--orange);animation:bl 1s infinite}
+  .dot.off{background:var(--muted)}
+  @keyframes bl{50%{opacity:.3}}
+
+  /* ---------- 通用卡片 ---------- */
+  .card{
+    background:var(--card);border-radius:var(--radius);box-shadow:var(--shadow);
+    padding:20px;margin-top:16px;
+  }
+  .card-hd{display:flex;align-items:center;gap:8px;margin-bottom:14px}
+  .card-hd svg{width:17px;height:17px;fill:var(--red);flex:none}
+  .card-hd h2{font-size:15px;font-weight:600}
+  .card-hd .hint{font-size:12px;color:var(--muted);font-weight:400;margin-left:auto}
+
+  /* ---------- 录入区 ---------- */
+  textarea{
+    width:100%;min-height:74px;resize:vertical;border:1px solid var(--line);
+    border-radius:12px;padding:12px 14px;font-size:16px;line-height:1.6;
+    font-family:inherit;color:var(--text);background:#FCFCFD;outline:none;
+    transition:border-color .15s, background .15s;
+  }
+  textarea:focus{border-color:var(--red);background:#fff}
+  textarea::placeholder{color:#B4B9C0}
+  .row{display:flex;gap:10px;margin-top:12px;align-items:center;flex-wrap:wrap}
+  .btn{
+    min-height:44px;padding:0 22px;border:none;border-radius:12px;cursor:pointer;
+    font-size:15px;font-weight:500;font-family:inherit;
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    transition:transform .12s, opacity .15s;
+  }
+  .btn svg{width:16px;height:16px;fill:currentColor}
+  .btn-p{background:var(--red);color:#fff;flex:1;min-width:160px}
+  .btn-p:active{transform:scale(.985)}
+  .btn-p:disabled{opacity:.55;cursor:not-allowed}
+  .btn-g{background:var(--bg);color:var(--sub)}
+  .btn-g:active{background:var(--line)}
+  .tip{font-size:12px;color:var(--muted);margin-top:10px;line-height:1.6}
+  .msg{margin-top:12px;padding:11px 14px;border-radius:10px;font-size:13.5px;display:none}
+  .msg.on{display:block}
+  .msg.ok{background:#EAFBF1;color:#04794A}
+  .msg.err{background:var(--red-soft);color:#C2163A;word-break:break-all}
+
+  /* ---------- 概览 ---------- */
+  .metrics{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+  .metric{
+    background:linear-gradient(180deg,#FCFCFD,#F7F8FA);border:1px solid var(--line);
+    border-radius:14px;padding:14px 15px;
+  }
+  .metric .k{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px}
+  .metric .k i{width:6px;height:6px;border-radius:2px;display:block}
+  .metric .v{font-size:24px;font-weight:650;margin-top:5px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+
+  .split{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:18px}
+  .panel-h{font-size:13px;font-weight:600;color:var(--sub);margin-bottom:12px}
+  .bar-row{display:flex;align-items:center;gap:10px;margin-bottom:11px;font-size:13px}
+  .bar-row .nm{width:52px;color:var(--sub);flex:none;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .bar-track{flex:1;height:9px;background:var(--bg);border-radius:6px;overflow:hidden}
+  .bar-fill{height:100%;border-radius:6px;transition:width .5s ease}
+  .bar-row .n{width:46px;text-align:right;color:var(--muted);flex:none;font-variant-numeric:tabular-nums}
+  .rank-row{display:flex;align-items:center;gap:9px;margin-bottom:9px;font-size:13px}
+  .rank-no{
+    width:19px;height:19px;border-radius:6px;background:var(--bg);color:var(--muted);
+    font-size:11px;font-weight:600;display:flex;align-items:center;justify-content:center;flex:none;
+  }
+  .rank-row:nth-child(1) .rank-no{background:var(--red);color:#fff}
+  .rank-t{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--sub)}
+  .rank-v{color:var(--red);font-weight:600;flex:none;font-variant-numeric:tabular-nums}
+
+  /* ---------- 列表 ---------- */
+  .filters{display:flex;gap:8px;margin-left:auto}
+  .chip{
+    padding:5px 13px;border-radius:20px;border:1px solid var(--line);background:#fff;
+    font-size:12.5px;color:var(--sub);cursor:pointer;font-family:inherit;
+  }
+  .chip.on{background:var(--red-soft);border-color:#FFD3DA;color:var(--red);font-weight:500}
+  .note{
+    display:flex;gap:14px;padding:15px;border:1px solid var(--line);border-radius:14px;
+    margin-bottom:12px;background:#fff;transition:box-shadow .18s,transform .18s;
+  }
+  .note:hover{box-shadow:var(--shadow)}
+  .thumb{
+    width:88px;height:88px;border-radius:11px;flex:none;background:var(--bg);
+    object-fit:cover;display:block;
+  }
+  .note-b{flex:1;min-width:0;display:flex;flex-direction:column}
+  .note-top{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+  .badge{
+    font-size:11px;padding:2px 8px;border-radius:6px;flex:none;font-weight:500;
+  }
+  .badge.video{background:#FFF0E6;color:#C2570A}
+  .badge.photo{background:#EAF2FF;color:#1D5CC4}
+  .note-time{font-size:11.5px;color:var(--muted);margin-left:auto;flex:none}
+  .note-t{
+    font-size:14.5px;font-weight:600;line-height:1.45;color:var(--text);
+    display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;
+    text-decoration:none;
+  }
+  .note-t:hover{color:var(--red)}
+  .note-meta{font-size:12px;color:var(--muted);margin-top:5px;display:flex;gap:10px;flex-wrap:wrap}
+  .note-tags{font-size:12px;color:#4E5969;margin-top:6px;display:-webkit-box;-webkit-line-clamp:1;-webkit-box-orient:vertical;overflow:hidden}
+  .note-foot{
+    display:flex;gap:16px;margin-top:auto;padding-top:9px;font-size:12.5px;color:var(--sub);
+  }
+  .note-foot span{display:flex;align-items:center;gap:4px}
+  .note-foot svg{width:13px;height:13px;fill:currentColor}
+  .note-foot .lk{color:var(--red)}
+
+  .empty{
+    text-align:center;padding:52px 20px;color:var(--muted);font-size:13.5px;
+  }
+  .empty svg{width:44px;height:44px;fill:#D8DCE1;margin-bottom:12px}
+  .skeleton{height:110px;border-radius:14px;background:linear-gradient(90deg,#F2F3F5 25%,#E9EBEE 50%,#F2F3F5 75%);background-size:200% 100%;animation:sk 1.3s infinite;margin-bottom:12px}
+  @keyframes sk{0%{background-position:200% 0}100%{background-position:-200% 0}}
+
+  /* ---------- 移动端 ---------- */
+  @media (max-width:768px){
+    .wrap{padding:0 12px}
+    .card{padding:16px;border-radius:14px}
+    .metrics{grid-template-columns:repeat(2,1fr);gap:10px}
+    .metric .v{font-size:21px}
+    .split{grid-template-columns:1fr;gap:16px}
+    .head-t h1{font-size:15px}
+    .card-hd{flex-wrap:wrap}
+    .filters{margin-left:0;width:100%;margin-top:8px}
+    .note{gap:11px;padding:12px}
+    .thumb{width:74px;height:74px;border-radius:9px}
+    .btn-p{width:100%}
+  }
+  @media (max-width:360px){
+    .metrics{grid-template-columns:1fr 1fr}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap head-in">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2 4 6v6c0 5 3.4 9.2 8 10 4.6-.8 8-5 8-10V6l-8-4Zm0 5a3 3 0 1 1 0 6 3 3 0 0 1 0-6Z"/></svg>
+    </div>
+    <div class="head-t">
+      <h1>小红书笔记统计台</h1>
+      <p>粘贴分享链接，自动抓取入库</p>
+    </div>
+    <div class="sync" id="sync"><span class="dot" id="dot"></span><span id="syncTxt">连接中</span></div>
+  </div>
+</header>
+
+<div class="wrap">
+
+  <!-- 模块一：录入 -->
+  <section class="card">
+    <div class="card-hd">
+      <svg viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2Zm1 15h-2v-2h2Zm0-4h-2V7h2Z"/></svg>
+      <h2>录入笔记</h2>
+      <span class="hint" id="tblLink"></span>
+    </div>
+    <textarea id="urlInput" placeholder="粘贴小红书分享链接或整段分享文案，例如：
+54 【这棵树到底结了多少苹果？】 😆 LwO7RdlpBW92tVD 😆 https://www.xiaohongshu.com/..."></textarea>
+    <div class="row">
+      <button class="btn btn-p" id="fetchBtn">
+        <svg viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6a6 6 0 1 1-6 6H4a8 8 0 1 0 8-8Z"/></svg>
+        <span id="fetchTxt">抓取并保存到飞书</span>
+      </button>
+      <button class="btn btn-g" id="refreshBtn">刷新列表</button>
+    </div>
+    <div class="tip">支持 note_id、完整链接、xhslink 短链或带表情的整段分享文案。抓取依赖本地 cookie，写入目标为飞书多维表格。</div>
+    <div class="msg" id="msg"></div>
+  </section>
+
+  <!-- 模块二：数据概览 -->
+  <section class="card">
+    <div class="card-hd">
+      <svg viewBox="0 0 24 24"><path d="M3 13h5v8H3Zm6.5-9h5v17h-5ZM16 7h5v14h-5Z"/></svg>
+      <h2>数据概览</h2>
+      <span class="hint" id="updTime"></span>
+    </div>
+    <div class="metrics">
+      <div class="metric"><div class="k"><i style="background:var(--red)"></i>已收录笔记</div><div class="v" id="mTotal">0</div></div>
+      <div class="metric"><div class="k"><i style="background:var(--orange)"></i>累计点赞</div><div class="v" id="mLiked">0</div></div>
+      <div class="metric"><div class="k"><i style="background:var(--blue)"></i>累计收藏</div><div class="v" id="mCollect">0</div></div>
+      <div class="metric"><div class="k"><i style="background:var(--green)"></i>累计评论</div><div class="v" id="mComment">0</div></div>
+    </div>
+    <div class="split">
+      <div>
+        <div class="panel-h">笔记类型分布</div>
+        <div id="typeBars"></div>
+      </div>
+      <div>
+        <div class="panel-h">点赞 Top 5</div>
+        <div id="rankBox"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 模块三：笔记列表 -->
+  <section class="card">
+    <div class="card-hd">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v2H4Zm0 5h16v2H4Zm0 5h11v2H4Zm0 5h11v2H4Z"/></svg>
+      <h2>已收录笔记</h2>
+      <div class="filters">
+        <button class="chip on" data-f="all">全部</button>
+        <button class="chip" data-f="图文">图文</button>
+        <button class="chip" data-f="视频">视频</button>
+      </div>
+    </div>
+    <div id="noteList"><div class="skeleton"></div><div class="skeleton"></div></div>
+  </section>
+
+</div>
+
+<script>
+/* ============ 配置 ============ */
+const BASE_URL = "https://my.feishu.cn/base/S6IGbRWTeaualFsWEkBc81zBn0g";
+
+/* ============ 状态 ============ */
+const state = { notes: [], filter: "all", busy: false };
+
+/* ============ 工具 ============ */
+const $ = id => document.getElementById(id);
+const toInt = v => { const n = parseInt(String(v ?? "0").replace(/[^\d]/g, ""), 10); return isNaN(n) ? 0 : n; };
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const fmtNum = n => n >= 10000 ? (n / 10000).toFixed(1) + "w" : String(n);
+
+function fmtDate(v){
+  if (!v) return "";
+  const s = String(v).replace("T", " ");
+  const m = s.match(/(\d{4})-(\d{2})-(\d{2})\s+(\d{2}):(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]} ${m[4]}:${m[5]}` : s.slice(0, 16);
+}
+
+function setStatus(kind, text){
+  const dot = $("dot"), txt = $("syncTxt");
+  dot.className = "dot" + (kind === "loading" ? " loading" : kind === "off" ? " off" : "");
+  txt.textContent = text;
+}
+
+function showMsg(type, text){
+  const el = $("msg");
+  el.className = "msg on " + type;
+  el.textContent = text;
+}
+
+/* ============ 数据层 ============ */
+async function loadNotes(){
+  try{
+    const r = await fetch("/api/notes", { cache: "no-store" });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "读取失败");
+    state.notes = d.notes || [];
+    setStatus("ok", "已同步");
+  }catch(e){
+    setStatus("off", "离线模式");
+    showMsg("err", "读取飞书数据失败：" + e.message + "（请确认本地服务正在运行）");
+  }
+  refreshAll();
+}
+
+async function submitNote(){
+  const url = $("urlInput").value.trim();
+  if (!url) { showMsg("err", "请先粘贴小红书分享链接"); return; }
+  if (state.busy) return;
+  state.busy = true;
+  $("fetchBtn").disabled = true;
+  $("fetchTxt").textContent = "抓取中…";
+  setStatus("loading", "抓取中");
+  $("msg").className = "msg";
+
+  try{
+    const r = await fetch("/api/fetch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url })
+    });
+    const d = await r.json();
+    if (!d.ok) throw new Error(d.error || "抓取失败");
+    const n = d.note || {};
+    showMsg("ok", `✅ 已入库：${n.title || "（无标题）"}　作者 ${n.author || "-"}　赞 ${n.liked || 0} / 藏 ${n.collected || 0} / 评 ${n.comment || 0}`);
+    $("urlInput").value = "";
+    await loadNotes();
+  }catch(e){
+    showMsg("err", "失败：" + e.message);
+    setStatus("ok", "已同步");
+  }finally{
+    state.busy = false;
+    $("fetchBtn").disabled = false;
+    $("fetchTxt").textContent = "抓取并保存到飞书";
+  }
+}
+
+/* ============ 渲染层（均为单向，无互调） ============ */
+function renderStats(){
+  const ns = state.notes;
+  let liked = 0, collect = 0, comment = 0;
+  ns.forEach(n => {
+    liked += toInt(n["点赞数"]);
+    collect += toInt(n["收藏数"]);
+    comment += toInt(n["评论数"]);
+  });
+  $("mTotal").textContent = ns.length;
+  $("mLiked").textContent = fmtNum(liked);
+  $("mCollect").textContent = fmtNum(collect);
+  $("mComment").textContent = fmtNum(comment);
+  $("updTime").textContent = ns.length ? "共 " + ns.length + " 条记录" : "";
+
+  // 类型分布
+  const cnt = { "图文": 0, "视频": 0 };
+  ns.forEach(n => {
+    const t = Array.isArray(n["笔记类型"]) ? n["笔记类型"][0] : n["笔记类型"];
+    if (cnt[t] !== undefined) cnt[t]++; else cnt[t || "其他"] = (cnt[t || "其他"] || 0) + 1;
+  });
+  const max = Math.max(1, ...Object.values(cnt));
+  const colors = { "图文": "#3B82F6", "视频": "#FF8A3D" };
+  const keys = ["图文", "视频"].filter(k => cnt[k] > 0).concat(Object.keys(cnt).filter(k => k !== "图文" && k !== "视频"));
+  $("typeBars").innerHTML = keys.length
+    ? keys.map(k => `
+      <div class="bar-row">
+        <span class="nm">${esc(k)}</span>
+        <span class="bar-track"><span class="bar-fill" style="width:${(cnt[k] / max * 100).toFixed(1)}%;background:${colors[k] || "#8F959E"}"></span></span>
+        <span class="n">${cnt[k]}</span>
+      </div>`).join("")
+    : `<div style="color:var(--muted);font-size:13px">暂无数据</div>`;
+
+  // Top5
+  const top = [...ns].sort((a, b) => toInt(b["点赞数"]) - toInt(a["点赞数"])).slice(0, 5);
+  $("rankBox").innerHTML = top.length
+    ? top.map((n, i) => `
+      <div class="rank-row">
+        <span class="rank-no">${i + 1}</span>
+        <span class="rank-t" title="${esc(n["笔记标题"])}">${esc(n["笔记标题"] || "（无标题）")}</span>
+        <span class="rank-v">${fmtNum(toInt(n["点赞数"]))}</span>
+      </div>`).join("")
+    : `<div style="color:var(--muted);font-size:13px">暂无数据</div>`;
+}
+
+const ICON = {
+  like: '<svg viewBox="0 0 24 24"><path d="M12 21s-8-4.9-8-10.5A4.5 4.5 0 0 1 12 7a4.5 4.5 0 0 1 8 3.5C20 16.1 12 21 12 21Z"/></svg>',
+  star: '<svg viewBox="0 0 24 24"><path d="m12 17.3-6.2 3.7 1.6-7L2 9.2l7.1-.6L12 2l2.9 6.6 7.1.6-5.4 4.8 1.6 7Z"/></svg>',
+  chat: '<svg viewBox="0 0 24 24"><path d="M20 2H4a2 2 0 0 0-2 2v18l4-4h14a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2Z"/></svg>',
+  share: '<svg viewBox="0 0 24 24"><path d="M18 16a3 3 0 0 0-2.2 1L9.9 13.6a3 3 0 0 0 0-3.2l5.9-3.4A3 3 0 1 0 15 5l-5.9 3.4a3 3 0 1 0 0 7.2L15 19a3 3 0 1 0 3-3Z"/></svg>'
+};
+
+function renderList(){
+  const box = $("noteList");
+  let ns = state.notes;
+  if (state.filter !== "all"){
+    ns = ns.filter(n => {
+      const t = Array.isArray(n["笔记类型"]) ? n["笔记类型"][0] : n["笔记类型"];
+      return t === state.filter;
+    });
+  }
+  if (!ns.length){
+    box.innerHTML = `<div class="empty">
+      <svg viewBox="0 0 24 24"><path d="M4 4h16v16H4Zm2 2v12h12V6Zm2 4h8v2H8Zm0 4h5v2H8Z"/></svg>
+      <div>${state.notes.length ? "该分类下暂无笔记" : "还没有收录笔记，粘贴链接试试"}</div>
+    </div>`;
+    return;
+  }
+  box.innerHTML = ns.map(n => {
+    const type = Array.isArray(n["笔记类型"]) ? n["笔记类型"][0] : (n["笔记类型"] || "图文");
+    const badge = type === "视频" ? "video" : "photo";
+    const img = (n["图片链接"] || "").split("\n")[0].trim();
+    const thumb = img
+      ? `<img class="thumb" src="/api/img?u=${encodeURIComponent(img)}" alt="" loading="lazy" referrerpolicy="no-referrer">`
+      : `<div class="thumb"></div>`;
+    return `<div class="note">
+      ${thumb}
+      <div class="note-b">
+        <div class="note-top">
+          <span class="badge ${badge}">${esc(type)}</span>
+          <span class="note-time">${fmtDate(n["发布时间"])}</span>
+        </div>
+        <a class="note-t" href="${esc(n["笔记链接"] || "#")}" target="_blank" rel="noopener">${esc(n["笔记标题"] || "（无标题）")}</a>
+        <div class="note-meta"><span>@${esc(n["作者"] || "-")}</span></div>
+        <div class="note-tags">${esc(n["标签"] || "")}</div>
+        <div class="note-foot">
+          <span class="lk">${ICON.like}${fmtNum(toInt(n["点赞数"]))}</span>
+          <span>${ICON.star}${fmtNum(toInt(n["收藏数"]))}</span>
+          <span>${ICON.chat}${fmtNum(toInt(n["评论数"]))}</span>
+          <span>${ICON.share}${fmtNum(toInt(n["分享数"]))}</span>
+        </div>
+      </div>
+    </div>`;
+  }).join("");
+}
+
+/* ============ 统一刷新入口（禁止渲染函数互调） ============ */
+function refreshAll(){
+  renderStats();
+  renderList();
+}
+
+/* ============ 事件绑定 ============ */
+document.addEventListener("DOMContentLoaded", () => {
+  $("tblLink").innerHTML = `<a href="${BASE_URL}" target="_blank" rel="noopener" style="color:var(--red);text-decoration:none">打开飞书表格 ↗</a>`;
+  $("fetchBtn").addEventListener("click", submitNote);
+  $("refreshBtn").addEventListener("click", () => { setStatus("loading", "刷新中"); loadNotes(); });
+  $("urlInput").addEventListener("keydown", e => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") submitNote();
+  });
+  document.querySelectorAll(".chip").forEach(c => {
+    c.addEventListener("click", () => {
+      document.querySelectorAll(".chip").forEach(x => x.classList.remove("on"));
+      c.classList.add("on");
+      state.filter = c.dataset.f;
+      renderList();
+    });
+  });
+  loadNotes();
+});
+</script>
+</body>
+</html>

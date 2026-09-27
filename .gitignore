@@ -1,0 +1,17 @@
+# ===== 敏感信息：切勿提交 =====
+cookies/
+*.cookie
+xhs_cookie.txt
+.env
+
+# ===== 运行时临时文件 =====
+.tmp/
+__pycache__/
+*.py[cod]
+*.ndjson
+*.manifest.json
+
+# ===== 本地工作数据 =====
+.workbuddy/
+.DS_Store
+Thumbs.db
