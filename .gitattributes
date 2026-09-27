@@ -1,0 +1,12 @@
+# 批处理文件使用 GBK 编码 + CRLF 行尾（Windows cmd 默认代码页 936），
+# 必须禁止 git 做任何行尾/编码转换，否则会再次出现乱码与命令解析失败。
+*.bat -text
+
+# 用户说明文档用 UTF-8(BOM) + CRLF，方便记事本直接打开
+*.txt text eol=crlf
+
+# 其余源码统一 LF
+*.py text eol=lf
+*.html text eol=lf
+*.md text eol=lf
+*.json text eol=lf

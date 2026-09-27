@@ -26,9 +26,11 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
+# 控制台编码：沿用系统默认（中文 Windows 即 cp936），与 bat 的 GBK 保持一致；
+# 仅追加容错，避免个别字符编码失败导致输出中断。
 try:
-    sys.stdout.reconfigure(encoding="utf-8")
-    sys.stderr.reconfigure(encoding="utf-8")
+    sys.stdout.reconfigure(errors="replace")
+    sys.stderr.reconfigure(errors="replace")
 except Exception:
     pass
 

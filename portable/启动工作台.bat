@@ -1,12 +1,11 @@
 @echo off
-chcp 65001 >nul
-title 小红书笔记统计台
+title С����ʼ�ͳ��̨
 cd /d "%~dp0"
 
 if not exist "python\python.exe" (
     echo.
-    echo [错误] 未找到 python\python.exe
-    echo 请确认压缩包已完整解压（不要直接在压缩包里运行）。
+    echo [����] δ�ҵ� python\python.exe
+    echo ��ȷ��ѹ������������ѹ����Ҫֱ����ѹ���������С�
     echo.
     pause
     exit /b 1
@@ -14,7 +13,7 @@ if not exist "python\python.exe" (
 
 if not exist "app\xhs_server.py" (
     echo.
-    echo [错误] 未找到 app\xhs_server.py，文件可能不完整。
+    echo [����] δ�ҵ� app\xhs_server.py���ļ����ܲ�������
     echo.
     pause
     exit /b 1
@@ -22,15 +21,17 @@ if not exist "app\xhs_server.py" (
 
 echo.
 echo   ============================================
-echo      小红书笔记统计台  正在启动...
+echo      С����ʼ�ͳ��̨  ��������...
 echo   ============================================
 echo.
-echo   浏览器会自动打开，若未打开请手动访问下面地址。
-echo   使用过程中请保持本窗口开启；关闭本窗口即停止服务。
+echo   ��������Զ��򿪣���δ�����ֶ����ʣ�
+echo     http://127.0.0.1:8787
+echo.
+echo   ʹ���ڼ��뱣�ֱ����ڿ������رձ����ڼ�ֹͣ����
 echo.
 
 "python\python.exe" "app\xhs_server.py"
 
 echo.
-echo   服务已停止，可以关闭本窗口。
+echo   ������ֹͣ�����Թرձ����ڡ�
 pause
