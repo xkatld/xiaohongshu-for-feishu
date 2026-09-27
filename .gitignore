@@ -15,3 +15,10 @@ __pycache__/
 .workbuddy/
 .DS_Store
 Thumbs.db
+
+# ===== 便携版：内置运行时与外部工具（体积大，构建时自动获取）=====
+portable/python/
+portable/tools/
+portable/data/
+build/
+dist/

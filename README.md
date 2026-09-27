@@ -90,3 +90,65 @@ Cookie 存放在 `cookies/xhs_cookie.txt`，从浏览器开发者工具中复制
 - 页面数据含 `new Map(...)` 等非标准 JSON 表达式，脚本内置了构造器剥离与括号配对解析。
 - 写入飞书通过 `lark-cli` 完成，无需额外配置。
 - 工作台页面零外部依赖，图片经 `/api/img` 代理以绕过小红书防盗链。
+
+## 九、便携版（Windows 免安装）
+
+给不方便装 Python / 需要拷贝到其他电脑的场景使用。源码与构建脚本位于 `portable/`，产物为单个 zip。
+
+### 产物
+
+```
+dist/xhs-workbench-portable-win.zip        约 24 MB
+```
+
+解压后目录：
+
+```
+xhs-workbench-portable/
+├── 启动工作台.bat          双击运行
+├── 使用说明.txt            给最终用户看的说明
+├── python/                 Python 3.13 嵌入式运行时（21 MB，免安装）
+├── app/                    程序代码（零第三方依赖，仅标准库）
+│   └── web/index.html      工作台页面
+├── tools/lark-cli.exe      飞书操作工具（48 MB，自带运行时）
+├── config/settings.json    飞书表格坐标
+└── data/                   本地数据（notes.json，首次运行自动创建）
+```
+
+### 设计要点
+
+| 项目 | 说明 |
+|---|---|
+| 零第三方依赖 | 用标准库 `urllib` 替代 `requests`，无需 pip 安装 |
+| 双轨存储 | 抓取结果先落本地 `data/notes.json`，飞书作为云端同步；断网也能用 |
+| 免配置迁移 | `lark-cli.exe` 为自包含单文件，无需 Node 环境 |
+| Cookie 不入包 | 出于安全考虑打包时清空 Cookie，新电脑在页面「设置」里填一次即可 |
+| 端口自适应 | 8787 被占用时自动顺延到 8788、8789… |
+
+### 源码结构（`portable/`）
+
+```
+portable/
+├── build.py              一键构建脚本
+├── app/                  程序代码（零第三方依赖，仅标准库）
+│   ├── xhs_core.py       抓取核心（urllib 实现）
+│   ├── feishu.py         飞书操作（调用内置 lark-cli）
+│   ├── store.py          本地存储
+│   ├── xhs_server.py     本地服务
+│   └── web/index.html    工作台页面
+├── config/settings.json  飞书表格坐标
+├── 启动工作台.bat
+├── 使用说明.txt
+├── python/               内置运行时（构建时自动下载，不入库）
+└── tools/lark-cli.exe    飞书工具（构建时自动获取，不入库）
+```
+
+### 重新打包
+
+```bash
+python portable/build.py            # 完整构建（缺运行时会自动下载）
+python portable/build.py --check    # 只检查依赖是否齐备
+```
+
+> 注意：`portable/python/`、`portable/tools/`、`dist/` 已加入 `.gitignore`。分发建议走 GitHub Release，不要提交进仓库。构建脚本不会删除已有文件，同名时自动改用带时间戳的新文件名。
+
