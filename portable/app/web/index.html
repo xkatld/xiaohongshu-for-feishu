@@ -150,6 +150,10 @@
   .set-block input,.set-block textarea{width:100%;border:1px solid var(--line);border-radius:10px;padding:10px 12px;font-size:14px;font-family:inherit;outline:none;background:#FCFCFD;color:var(--text)}
   .set-block input:focus,.set-block textarea:focus{border-color:var(--red);background:#fff}
   .set-block textarea{min-height:96px;font-size:13px;resize:vertical}
+  .set-block label.chk{display:flex;align-items:center;gap:8px;font-size:13.5px;margin:4px 0 10px;cursor:pointer;color:var(--text)}
+  .set-block label.chk input[type=checkbox]{width:16px;height:16px;flex:none;padding:0;accent-color:var(--red);cursor:pointer}
+  .set-block input.num{width:64px;padding:6px 8px;text-align:center}
+  .num-wrap{display:flex;align-items:center;gap:6px;justify-content:flex-end}
   .set-block .btn{width:100%;margin-top:9px}
   .kv{display:flex;justify-content:space-between;font-size:13px;padding:9px 0;border-bottom:1px solid var(--line)}
   .kv span:first-child{color:var(--muted)}
@@ -339,6 +343,17 @@
   </div>
 
   <div class="set-block">
+    <h4>图片在表格里直接显示</h4>
+    <p>开启后，抓取时会把笔记图片以<b>附件</b>形式写进表格的「图片」列，在飞书里直接看到缩略图；<b>「图片链接」文本列会同时保留</b>，方便复制与筛选。</p>
+    <label class="chk"><input type="checkbox" id="upImgChk"> 上传图片到表格（附件列）</label>
+    <div class="kv"><span>每条笔记最多</span>
+      <span class="num-wrap"><input class="num" id="maxImgInput" type="number" min="1" max="50" step="1" value="9"> 张</span>
+    </div>
+    <button class="btn btn-o" id="saveImgBtn">保存图片设置</button>
+    <p style="margin-top:9px">图片会先下载到本机临时目录再上传，传完即删；笔记图片较多、批量同步时会稍慢。</p>
+  </div>
+
+  <div class="set-block">
     <h4>小红书 Cookie</h4>
     <p>从浏览器开发者工具复制完整 Cookie 粘贴到下方。Cookie 失效时抓取会报错，重新粘贴即可。</p>
     <div class="kv"><span>当前状态</span><span id="sCkStatus">-</span></div>
@@ -458,6 +473,10 @@ function renderStatus(){
     : (fs.logged_in ? "尚未创建" : "-");
   $("baseTokenInput").value = fs.base_token || "";
   $("tableIdInput").value = fs.table_id || "";
+
+  // ---- 图片附件列 ----
+  $("upImgChk").checked = fs.upload_images !== false;
+  $("maxImgInput").value = fs.max_images || 9;
 
   // ---- 飞书应用 ----
   const app = state.app || {};
@@ -890,6 +909,20 @@ document.addEventListener("DOMContentLoaded", () => {
       body: JSON.stringify({ base_token: $("baseTokenInput").value.trim(), table_id: $("tableIdInput").value.trim() })
     });
     if (d.ok){ toast("表格配置已保存"); await loadAll(); }
+  });
+
+  $("saveImgBtn").addEventListener("click", async () => {
+    const d = await api("/api/settings", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        upload_images: $("upImgChk").checked,
+        max_images: parseInt($("maxImgInput").value, 10) || 9
+      })
+    });
+    if (d.ok){
+      toast($("upImgChk").checked ? "已开启：图片会写进表格附件列" : "已关闭图片上传");
+      await loadAll();
+    }
   });
 
   $("expCsvBtn").addEventListener("click", () => window.open("/api/export?format=csv", "_blank"));

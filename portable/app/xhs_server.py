@@ -166,6 +166,8 @@ class Handler(BaseHTTPRequestHandler):
                     "error": fs.get("error", ""),
                     "provisioned": provisioned,
                     "needs_setup": bool(app_ready and logged_in and not provisioned),
+                    "upload_images": bool(st.get("upload_images", True)),
+                    "max_images": int(st.get("max_images") or 9),
                 },
                 "cookie": {"configured": bool(ck), "length": len(ck)},
                 "stats": stats_of(notes),
@@ -277,10 +279,13 @@ class Handler(BaseHTTPRequestHandler):
             sync["message"] = "尚未创建飞书表格，已存本地（在设置里点「创建我的表格」）"
         else:
             try:
-                act, rid = feishu.upsert_note(info)
+                act, rid, imgs = feishu.upsert_note(info)
                 with _lock:
                     store.mark_synced(info["note_id"], rid)
-                sync = {"synced": True, "message": f"已{'更新' if act == 'updated' else '写入'}飞书"}
+                tip = f"已{'更新' if act == 'updated' else '写入'}飞书"
+                if imgs:
+                    tip += f"，图片 {imgs} 张"
+                sync = {"synced": True, "message": tip}
             except Exception as e:
                 sync["message"] = f"飞书同步失败：{str(e)[:150]}"
 
@@ -302,19 +307,26 @@ class Handler(BaseHTTPRequestHandler):
             return self._json({"ok": True, "synced": 0, "message": "没有待同步的记录"})
 
         ok, fail = 0, 0
+        img_total = 0
         last_err = ""
         for n in pending:
             try:
-                act, rid = feishu.upsert_note(n)
+                act, rid, imgs = feishu.upsert_note(n)
                 with _lock:
                     store.mark_synced(n["note_id"], rid)
                 ok += 1
+                img_total += imgs or 0
             except Exception as e:
                 fail += 1
                 last_err = str(e)[:150]
             time.sleep(0.4)
-        msg = f"同步完成：成功 {ok} 条" + (f"，失败 {fail} 条（{last_err}）" if fail else "")
-        return self._json({"ok": True, "synced": ok, "failed": fail, "message": msg})
+        msg = f"同步完成：成功 {ok} 条"
+        if img_total:
+            msg += f"，图片 {img_total} 张"
+        if fail:
+            msg += f"，失败 {fail} 条（{last_err}）"
+        return self._json({"ok": True, "synced": ok, "failed": fail,
+                           "images": img_total, "message": msg})
 
     def _settings(self, body):
         if "cookie" in body:
@@ -323,10 +335,24 @@ class Handler(BaseHTTPRequestHandler):
         for k in ("base_token", "table_id", "base_url"):
             if body.get(k):
                 conf[k] = str(body[k]).strip()
+        # 图片附件列开关与张数上限
+        if "upload_images" in body:
+            conf["upload_images"] = bool(body.get("upload_images"))
+        if "max_images" in body:
+            try:
+                conf["max_images"] = max(1, min(50, int(body.get("max_images"))))
+            except (TypeError, ValueError):
+                pass
         if conf:
             feishu.save_settings(conf)
         ck = xhs_core.load_cookie()
-        return self._json({"ok": True, "cookie": {"configured": bool(ck), "length": len(ck)}})
+        st = feishu.load_settings()
+        return self._json({
+            "ok": True,
+            "cookie": {"configured": bool(ck), "length": len(ck)},
+            "upload_images": bool(st.get("upload_images", True)),
+            "max_images": int(st.get("max_images") or 9),
+        })
 
     def _app_init_start(self):
         """走飞书官方向导，为使用者创建/绑定属于他自己的飞书应用"""

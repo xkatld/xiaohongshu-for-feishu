@@ -22,6 +22,11 @@ import threading
 import subprocess
 import urllib.request
 
+try:  # 图片附件列需要先把外链图片下载到本地（复用抓取层的 UA / Referer）
+    import xhs_core
+except Exception:  # pragma: no cover
+    xhs_core = None
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 TMP_DIR = os.path.join(ROOT, "data", "_tmp")
@@ -32,6 +37,10 @@ DEFAULT_SETTINGS = {
     "base_token": "",
     "table_id": "",
     "base_url": "",
+    # 把笔记图片真实上传到表格「图片」附件列（在表格里直接显示缩略图）
+    "upload_images": True,
+    # 每条笔记最多传几张（图文最多 18 张，默认取前 9 张）
+    "max_images": 9,
 }
 
 # 自动建表时使用的名称
@@ -39,6 +48,8 @@ BASE_NAME = "小红书笔记统计"
 TABLE_NAME = "笔记"
 
 # 表格字段结构，第一项为主字段；与 build_record() 的键一一对应
+# 注意：「图片链接」是文本列（方便复制/筛选），「图片」是附件列（在表格里直接显示图）。
+# 附件列不通过 record-batch-* 写入，必须用 +record-upload-attachment 上传。
 FIELD_SCHEMA = [
     {"name": "笔记标题", "type": "text"},
     {"name": "笔记类型", "type": "select", "multiple": False,
@@ -47,6 +58,7 @@ FIELD_SCHEMA = [
     {"name": "标签", "type": "text"},
     {"name": "正文", "type": "text"},
     {"name": "图片链接", "type": "text"},
+    {"name": "图片", "type": "attachment"},
     {"name": "点赞数", "type": "number"},
     {"name": "收藏数", "type": "number"},
     {"name": "评论数", "type": "number"},
@@ -56,6 +68,11 @@ FIELD_SCHEMA = [
     {"name": "note_id", "type": "text"},
     {"name": "抓取时间", "type": "datetime"},
 ]
+
+# 图片附件列（附件类型字段名，创建/上传时用名字即可）
+IMAGE_FIELD = "图片"
+# 已确认字段齐全的表格坐标缓存，避免每条记录都拉一次字段列表
+_FIELD_CACHE = {}
 
 
 class FeishuError(Exception):
@@ -384,8 +401,13 @@ def require_provisioned():
 
 
 def reset_settings():
-    """清空表格坐标——换账号时使用"""
-    return save_settings({"base_token": "", "table_id": "", "base_url": ""})
+    """清空表格坐标——换账号时使用（保留与本机使用习惯相关的图片设置）"""
+    st = load_settings()
+    return save_settings({
+        "base_token": "", "table_id": "", "base_url": "",
+        "upload_images": st.get("upload_images", True),
+        "max_images": st.get("max_images", 9),
+    })
 
 
 def list_tables(base_token):
@@ -450,6 +472,201 @@ def provision_base(name=BASE_NAME, table_name=TABLE_NAME):
         base_url = "https://feishu.cn/base/" + base_token
 
     return save_settings({"base_token": base_token, "table_id": table_id, "base_url": base_url})
+
+
+# ---------------------------------------------------------------- 字段维护
+def _check(res, what="操作"):
+    """lark-cli 失败时统一抛 FeishuError"""
+    if isinstance(res, dict) and res.get("ok") is False:
+        raise FeishuError(_err_msg(res.get("error")))
+    return res
+
+
+def pick_list(obj, keys=("fields", "items", "tables", "records", "data")):
+    """从 lark-cli 各种返回结构里找出第一个列表"""
+    if isinstance(obj, list):
+        return obj
+    if isinstance(obj, dict):
+        for k in keys:
+            v = obj.get(k)
+            if isinstance(v, list):
+                return v
+        for v in obj.values():
+            if isinstance(v, dict):
+                r = pick_list(v, keys)
+                if r:
+                    return r
+    return []
+
+
+def field_names():
+    """当前表格已有的字段名列表"""
+    st = require_provisioned()
+    res = run([
+        "base", "+field-list",
+        "--base-token", st["base_token"],
+        "--table-id", st["table_id"],
+        "--as", "user",
+    ], timeout=90)
+    _check(res, "读取字段")
+    names = []
+    for f in pick_list(res):
+        if isinstance(f, dict):
+            n = f.get("field_name") or f.get("name") or ""
+            if n:
+                names.append(n)
+    return names
+
+
+def ensure_fields(force=False):
+    """
+    确保表格里有 FIELD_SCHEMA 定义的全部字段（老表自动补列）。
+
+    为什么要这个：早期版本建的表没有「图片」附件列，使用者升级后
+    并不会重新建表，所以每次同步前都要核对一次、缺啥补啥。
+    返回本次新补齐的字段名列表（幂等，同一张表只核对一次）。
+    """
+    st = require_provisioned()
+    key = (st["base_token"], st["table_id"])
+    if not force and _FIELD_CACHE.get(key):
+        return []
+
+    try:
+        have = set(field_names())
+    except FeishuError:
+        return []  # 字段列表读不到就先按原样跑，不阻塞写入
+
+    missing = [f for f in FIELD_SCHEMA if f["name"] not in have]
+    created = []
+    if missing:
+        try:
+            res = run([
+                "base", "+field-create",
+                "--base-token", st["base_token"],
+                "--table-id", st["table_id"],
+                "--json", json.dumps(missing, ensure_ascii=False),
+                "--as", "user",
+            ], timeout=120)
+            _check(res, "新增字段")
+            created = [f["name"] for f in missing]
+        except FeishuError:
+            # 批量失败就逐个补，避免个别字段冲突拖垮整体
+            for f in missing:
+                try:
+                    run([
+                        "base", "+field-create",
+                        "--base-token", st["base_token"],
+                        "--table-id", st["table_id"],
+                        "--json", json.dumps(f, ensure_ascii=False),
+                        "--as", "user",
+                    ], timeout=90)
+                    created.append(f["name"])
+                except FeishuError:
+                    continue
+
+    _FIELD_CACHE[key] = True
+    return created
+
+
+# ---------------------------------------------------------------- 图片附件
+def upload_images(record_id, files, field=IMAGE_FIELD):
+    """
+    把本地图片文件追加到该记录的附件单元格（单元格里直接显示图片）。
+    一个单元格最多 50 个附件，重复 --file 即可一次传多张。
+    """
+    files = [f for f in (files or []) if f and os.path.exists(f)]
+    if not record_id or not files:
+        return 0
+    st = require_provisioned()
+    args = [
+        "base", "+record-upload-attachment",
+        "--base-token", st["base_token"],
+        "--table-id", st["table_id"],
+        "--record-id", record_id,
+        "--field-id", field,
+        "--as", "user",
+    ]
+    for f in files:
+        args += ["--file", f]
+    _check(run(args, timeout=300), "上传图片")
+    return len(files)
+
+
+def remove_attachments(record_id, tokens, field=IMAGE_FIELD):
+    """移除附件单元格里的指定 file_token（更新记录前先清旧图，避免越攒越多）"""
+    tokens = [t for t in (tokens or []) if t]
+    if not record_id or not tokens:
+        return 0
+    st = require_provisioned()
+    args = [
+        "base", "+record-remove-attachment",
+        "--base-token", st["base_token"],
+        "--table-id", st["table_id"],
+        "--record-id", record_id,
+        "--field-id", field,
+        "--yes",
+        "--as", "user",
+    ]
+    for t in tokens:
+        args += ["--file-token", t]
+    _check(run(args, timeout=180), "移除图片")
+    return len(tokens)
+
+
+def attachment_tokens(row, field=IMAGE_FIELD):
+    """从一条记录里取出附件字段的 file_token 列表"""
+    v = (row or {}).get(field)
+    tokens = []
+    for it in (v if isinstance(v, list) else ([v] if v else [])):
+        if isinstance(it, dict):
+            t = it.get("file_token") or it.get("fileToken") or it.get("token")
+        else:
+            t = it if isinstance(it, str) else ""
+        if t:
+            tokens.append(t)
+    return tokens
+
+
+def attach_note_images(record_id, info):
+    """
+    下载笔记图片 → 上传到「图片」附件列，返回成功上传的张数。
+
+    这是纯增强：任何一步失败都只记 0，绝不影响记录本身的写入。
+    """
+    if not record_id or xhs_core is None:
+        return 0
+    st = load_settings()
+    if not st.get("upload_images", True):
+        return 0
+    urls = info.get("images") or []
+    if not urls:
+        return 0
+    try:
+        limit = int(st.get("max_images") or 9)
+    except (TypeError, ValueError):
+        limit = 9
+
+    try:
+        files = xhs_core.download_images(
+            urls, os.path.join(TMP_DIR, "img"),
+            prefix=info.get("note_id") or "note", limit=limit)
+    except Exception:
+        return 0
+    if not files:
+        return 0
+
+    n = 0
+    try:
+        n = upload_images(record_id, files)
+    except Exception:
+        n = 0
+    finally:
+        for p in files:
+            try:
+                os.remove(p)
+            except OSError:
+                pass
+    return n
 
 
 # ---------------------------------------------------------------- 登录
@@ -601,13 +818,31 @@ def build_record(info):
 def upsert_note(info):
     """
     按 note_id 写入；已存在则更新。
-    返回 (action, record_id)：action ∈ {created, updated}
+    返回 (action, record_id, image_count)：action ∈ {created, updated}
+
+    「图片」附件列的处理：更新时先移除该记录原有的附件再重新上传，
+    保证表格里的图和笔记当前内容一致，也不会越积越多。
     """
+    require_provisioned()
+    ensure_fields()
+
     existing = list_records()
     dup = next((r for r in existing if r.get("note_id") == info["note_id"]), None)
     record = build_record(info)
+
     if dup and dup.get("record_id"):
-        update_record(dup["record_id"], record)
-        return "updated", dup["record_id"]
-    ids = create_records([record])
-    return "created", (ids[0] if ids else "")
+        rid = dup["record_id"]
+        update_record(rid, record)
+        action = "updated"
+        old = attachment_tokens(dup)
+        if old:
+            try:
+                remove_attachments(rid, old)
+            except FeishuError:
+                pass
+    else:
+        ids = create_records([record])
+        rid = ids[0] if ids else ""
+        action = "created"
+
+    return action, rid, attach_note_images(rid, info)

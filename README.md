@@ -12,7 +12,7 @@
 | 表格名称 | 小红书笔记统计 |
 | 地址 / base_token / table_id | 不在文档中记录 —— 属本机私有配置，见本机 `portable/config/settings.json`（该文件已排除出 git 与打包） |
 
-**字段**：笔记标题、笔记类型（图文/视频）、作者、标签、正文、图片链接、点赞数、收藏数、评论数、分享数、发布时间、笔记链接、note_id、抓取时间。
+**字段**：笔记标题、笔记类型（图文/视频）、作者、标签、正文、图片链接、**图片（附件，表格内直接显示图片）**、点赞数、收藏数、评论数、分享数、发布时间、笔记链接、note_id、抓取时间。
 
 ## 二、项目结构
 
@@ -83,7 +83,8 @@ Cookie 存放在 `cookies/xhs_cookie.txt`，从浏览器开发者工具中复制
 | 抓取报错 cookie 相关 | 更新 `cookies/xhs_cookie.txt` |
 | 图片不显示 | 图片经本地服务代理转发；确认服务在运行 |
 | 端口被占用 | 设置环境变量 `XHS_PORT=8888` 后重启 |
-| 表格打开无权限 | 表格归属当前飞书账号「咱们裸熊」 |
+| 表格打开无权限 | 表格归属当前登录账号；换账号请点「我已换账号，重新建表」 |
+| 表格「图片」列没图 | 见第九节「图片直显」；老表会在同步时自动补列 |
 
 ## 八、技术说明
 
@@ -124,7 +125,7 @@ xhs-workbench-portable/
 |---|---|---|
 | 1 | 绑定使用者自己的飞书应用 | `lark-cli config init --new`（飞书官方向导，浏览器里创建），或手动填 App ID/Secret（**先校验再写入，失败回滚**）|
 | 2 | 登录自己的账号 | `auth login`（Device Flow）|
-| 3 | 创建自己的表格 | `base +base-create`，14 个字段一次建好 |
+| 3 | 创建自己的表格 | `base +base-create`，15 个字段一次建好（含「图片」附件列）|
 | 4 | 配置小红书 Cookie | 存本机 `config/xhs_cookie.txt`，抓取时带上 |
 
 四步状态由 `/api/status` 的 `steps` 字段统一暴露（`app` / `login` / `base` / `cookie`），
@@ -142,6 +143,7 @@ xhs-workbench-portable/
 |---|---|
 | 零第三方依赖 | 用标准库 `urllib` 替代 `requests`，无需 pip 安装 |
 | 双轨存储 | 抓取结果先落本地 `data/notes.json`，飞书作为云端同步；断网也能用 |
+| 图片直显 | 外链图片先落到 `data/_tmp/`，再用 `+record-upload-attachment` 传进「图片」附件列；「图片链接」文本列同时保留 |
 | 免配置迁移 | `lark-cli.exe` 为自包含单文件，无需 Node 环境 |
 | Cookie 不入包 | 打包时排除 `config/xhs_cookie.txt`，新电脑在页面「设置」里填一次即可 |
 | 表格不入包 | 打包时排除 `config/settings.json`，使用者登录后自行建表，绝不外泄开发者的表格 |
@@ -150,6 +152,31 @@ xhs-workbench-portable/
 | bat 编码 | 「启动工作台.bat」为 **GBK + CRLF**（中文 Windows 默认代码页 936），`.gitattributes` 已禁止 git 对其做任何转换 |
 
 > **改 bat 的注意事项**：千万不要用默认 UTF-8 + LF 保存。cmd 不认 LF 分行，且会把 UTF-8 中文按 GBK 解析成乱码并拆成独立"命令"，表现为满屏「不是内部或外部命令」且服务起不来。用编辑器另存为 ANSI/GBK 编码、Windows(CRLF) 行尾。
+
+### 图片直显：链接与缩略图各一列
+
+飞书多维表格里**只有附件列**才能直接渲染图片，外链文本不会自动变成图，所以表里做了两列：
+
+| 列 | 类型 | 用途 |
+|---|---|---|
+| 图片链接 | `text` | 纯文本地址，可复制、筛选、二次加工 |
+| 图片 | **`attachment`** | 真实图片，在表格里直接显示缩略图 |
+
+实现链路：
+
+1. 抓到的外链图片先下载到本机 `data/_tmp/img/`（请求带 `Referer` 绕过小红书防盗链）；
+2. `base +record-upload-attachment --field-id 图片 --file ...` 上传。CLI 内部是三步：
+   读字段确认是附件列 → `drive/v1/medias/upload_all` → `base/v3/.../append_attachments`，
+   上传的图片会带 `image_width` / `image_height`，所以表格里能直接渲染；
+3. 上传后立即删除本地临时文件，本机不留副本。
+
+几个刻意的设计：
+
+- 默认每条最多传 9 张，可在「设置 → 图片在表格里直接显示」调整（1–50）；
+- **更新记录时先 `+record-remove-attachment` 清掉旧图再传**，否则同一单元格会越攒越多；
+- `build_record()` 刻意**不含**「图片」键 —— 附件只能由专用 shortcut 写，混进 `record-batch-*` 会被过滤；
+- 老表通过 `ensure_fields()` 自动补列：`+field-list` 比一次，缺啥用 `+field-create` 补差集，每张表只核对一次；
+- 单张下载/上传失败只跳过这张图，不影响记录本身写入。
 
 ### 源码结构（`portable/`）
 

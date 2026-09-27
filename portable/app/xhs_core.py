@@ -17,9 +17,27 @@ import zlib
 import ssl
 import urllib.request
 import urllib.error
+from urllib.parse import urlparse
 
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36")
+
+# 小红书图片有防盗链：必须带 Referer（以及浏览器 UA）才能下载成功。
+# Accept 里刻意不带 webp，让 CDN 返回 jpg/png —— 这样图片传进飞书表格后一定能显示。
+IMG_HEADERS = {
+    "User-Agent": UA,
+    "Referer": "https://www.xiaohongshu.com/",
+    "Accept": "image/jpeg,image/png,image/*;q=0.8",
+    "Accept-Language": "zh-CN,zh;q=0.9",
+}
+
+# Content-Type -> 文件后缀
+IMG_EXT = {
+    "image/jpeg": ".jpg", "image/jpg": ".jpg", "image/pjpeg": ".jpg",
+    "image/png": ".png", "image/webp": ".webp", "image/gif": ".gif",
+    "image/avif": ".avif", "image/bmp": ".bmp", "image/heic": ".heic",
+}
+IMG_EXTS = (".jpg", ".jpeg", ".png", ".webp", ".gif", ".avif", ".bmp", ".heic")
 
 NOTE_ID_RE = re.compile(r"(?:item|explore|discovery/item)/([0-9a-fA-F]{24})")
 URL_RE = re.compile(r"https?://[^\s\u4e00-\u9fff，。、]+")
@@ -99,6 +117,58 @@ def http_get_bytes(url, headers=None, timeout=25):
         return e.code, "text/plain", str(e).encode()
     except urllib.error.URLError as e:
         raise XHSError(f"图片下载失败：{e.reason}")
+
+
+def _guess_ext(ctype, url):
+    """推断图片后缀：优先 Content-Type，其次 URL 路径，兜底 .jpg"""
+    ct = (ctype or "").split(";")[0].strip().lower()
+    if ct in IMG_EXT:
+        return IMG_EXT[ct]
+    path = urlparse(url or "").path
+    ext = os.path.splitext(path)[1].lower()
+    if ext in IMG_EXTS:
+        return ext
+    return ".jpg"
+
+
+def download_images(urls, dest_dir, prefix="note", limit=9,
+                    max_bytes=12 * 1024 * 1024, timeout=30):
+    """
+    把笔记图片下载到本地目录，返回本地文件路径列表。
+
+    用于「飞书表格里图片直接显示」：多维表格的附件列只能上传本地文件，
+    不能直接吃外链，所以先落到 data/_tmp/img/ 再上传。
+    单张下载失败会被跳过（不影响其它图片，也不影响主流程）。
+    """
+    urls = [u for u in (urls or []) if u]
+    try:
+        limit = max(0, int(limit))
+    except (TypeError, ValueError):
+        limit = 9
+    if not urls or limit <= 0:
+        return []
+
+    try:
+        os.makedirs(dest_dir, exist_ok=True)
+    except OSError:
+        return []
+
+    saved = []
+    for i, u in enumerate(urls[:limit]):
+        try:
+            code, ctype, blob = http_get_bytes(u, headers=IMG_HEADERS, timeout=timeout)
+        except Exception:
+            continue
+        if code != 200 or not blob or len(blob) < 1024 or len(blob) > max_bytes:
+            continue
+        p = os.path.join(dest_dir, f"{prefix}_{i + 1}{_guess_ext(ctype, u)}")
+        try:
+            with open(p, "wb") as f:
+                f.write(blob)
+        except OSError:
+            continue
+        saved.append(p)
+    return saved
 
 
 # ---------------------------------------------------------------- 链接解析
